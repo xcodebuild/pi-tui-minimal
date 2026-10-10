@@ -1,6 +1,6 @@
 {
 	"name": "pi-tui-minimal",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "Quiet live-then-collapse TUI for the pi coding agent",
 	"type": "module",
 	"license": "MIT",
@@ -13,8 +13,15 @@
 	"bugs": {
 		"url": "https://github.com/xcodebuild/pi-tui-minimal/issues"
 	},
-	"keywords": ["pi-package"],
-	"files": ["extensions", "src", "themes", "README.md"],
+	"keywords": [
+		"pi-package"
+	],
+	"files": [
+		"extensions",
+		"src",
+		"themes",
+		"README.md"
+	],
 	"engines": {
 		"node": ">=22.19.0"
 	},
@@ -22,8 +29,12 @@
 		"test": "node --experimental-strip-types --test test/*.test.ts"
 	},
 	"pi": {
-		"extensions": ["./extensions"],
-		"themes": ["./themes"]
+		"extensions": [
+			"./extensions"
+		],
+		"themes": [
+			"./themes"
+		]
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*",

@@ -93,7 +93,7 @@ describe("extension factory", () => {
 				isStreaming: true,
 				availableWidth: 80,
 			}),
-		).toBe("◆ Thinking 2 tokens");
+		).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Thinking 2 tokens$/);
 	});
 
 	it("session_start is a no-op without UI", async () => {
@@ -128,11 +128,14 @@ describe("extension factory", () => {
 
 		expect(ui.hiddenLabel).toBe("<b>[accent]◆[/]</b> <b>[accent]Thinking[/]</b>");
 		const [transform] = pi.markdownTransformers;
-		expect(
-			transform!("a\nb", { messageType: "assistant-thinking", isStreaming: true, availableWidth: 80 }),
-		).toBe(
-			"<b>[accent]◆[/]</b> <b>[accent]Thinking[/]</b>[dim] [/]<b>[dim]1 token[/]</b>",
-		);
+		// A streaming label wears the live glyph, bold in the warning slot rather than accent.
+		const streaming = transform!("a\nb", {
+			messageType: "assistant-thinking",
+			isStreaming: true,
+			availableWidth: 80,
+		});
+		expect(streaming).toMatch(/^<b>\[warning\][⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\[\/\]<\/b> /);
+		expect(streaming).toContain("<b>[accent]Thinking[/]</b>[dim] [/]<b>[dim]1 token[/]</b>");
 
 		const message = { role: "assistant", content: [{ type: "thinking", thinking: "a" }] };
 		for (const handler of pi.events.get("message_update") ?? []) {

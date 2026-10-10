@@ -139,4 +139,16 @@ describe("thought and diffs", () => {
 		expect(formatWriteLines("src/a.ts", 1)).toBe("◆ Write src/a.ts  1 line");
 		expect(formatEditCounts("src/a.ts", 3, 12)).toBe("◆ Edit src/a.ts  −3 +12");
 	});
+
+	it("takes the running row's marker from the caller", () => {
+		// The formatters stay plain text: the live glyph is a parameter, and `◆` is the default.
+		expect(formatRunLine("git status", "检查仓库", 2.1, "⠋")).toBe("⠋ Run 检查仓库 for 2.1s");
+		expect(formatRunFull("git status", 0.4, "⠋")).toBe("⠋ Run git status for 0.4s");
+		expect(formatThinkingLive(2.1, 1234, "⠼")).toBe("⠼ Thinking 1,234 tokens for 2.1s");
+		expect(formatWriteLines("src/a.ts", 2, "⠋")).toBe("⠋ Write src/a.ts  2 lines");
+		expect(formatEditCounts("src/a.ts", 3, 12, "⠋")).toBe("⠋ Edit src/a.ts  −3 +12");
+		// The settled forms never take one.
+		expect(formatRanLine("git status", "检查仓库", 2.1)).toBe("◆ Ran 检查仓库 for 2.1s");
+		expect(formatThought(0.4, 1)).toBe("◆ Thought 1 token for 0.4s");
+	});
 });

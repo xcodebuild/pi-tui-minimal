@@ -115,6 +115,39 @@ describe("emphasizeHeader", () => {
 	});
 });
 
+/**
+ * A running row wears an animated glyph instead of `◆` (`live.ts`). The emphasis layer is what
+ * decides how the two read: `◆` in the accent slot, the live glyph bold in the warning slot, so
+ * running and settled differ by colour as well as by shape.
+ */
+describe("live marker emphasis", () => {
+	it("paints the live glyph warning-bold and keeps the row body as it was", () => {
+		expect(emphasizeHeader(markerTheme, "⠋ Run git status")).toBe(
+			`<b>[warning]⠋[/]</b> ${ACCENT}Run[/]</b>${DIM} git status[/]`,
+		);
+		expect(emphasizeHeader(markerTheme, "⠼ ls .")).toBe(
+			`<b>[warning]⠼[/]</b> ${ACCENT}ls[/]</b>${BOLD} .</b>`,
+		);
+	});
+
+	it("keeps a live glyph whole when it is the only thing on the row", () => {
+		expect(emphasizeHeader(markerTheme, "⠹")).toBe("<b>[warning]⠹[/]</b>");
+	});
+
+	it("settles a failed row back to `◆`, however it was handed in", () => {
+		expect(emphasizeError(markerTheme, "⠋ Run npm test  exit 1")).toBe(
+			`[error]${BOLD}◆</b> ${BOLD}Run</b> npm test${BOLD}  exit 1</b>[/]`,
+		);
+	});
+
+	it("keeps the live glyph on a streaming thinking label", () => {
+		expect(emphasizeThinkingLabel(markerTheme, "⠼ Thinking 1,234 tokens")).toBe(
+			`<b>[warning]⠼[/]</b> ${ACCENT}Thinking[/]</b>${THINKING} [/]` +
+				`${BOLD}${THINKING}1,234 tokens[/]</b>`,
+		);
+	});
+});
+
 describe("emphasizeError", () => {
 	it("keeps the error colour and bolds the marker, the action and the exit code", () => {
 		expect(emphasizeError(markerTheme, "◆ Run npm test  exit 1")).toBe(

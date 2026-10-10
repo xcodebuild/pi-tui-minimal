@@ -14,6 +14,7 @@ import {
 import { BurstTracker, isBurstSplitTool } from "./burst.ts";
 import { cleanSummary, summarizeCommand } from "./command-summary.ts";
 import { additionsDiff, numberedDiff } from "./diff.ts";
+import { createLiveGlyphs, type LiveGlyphs } from "./live.ts";
 import {
 	countLines,
 	countNewlines,
@@ -144,13 +145,13 @@ function runSeconds(
 type EditReplacement = { oldText?: unknown; newText?: unknown };
 
 /** `◆ Edit src/a.ts  −3 +12` — or the bare path before the counts have streamed in. */
-function editHeader(args: unknown): string {
+function editHeader(args: unknown, marker: string = DIAMOND): string {
 	const path = String((args as { path?: unknown } | undefined)?.path ?? "");
 	const { oldLines, newLines } = editLineCounts(args);
 	if (oldLines === 0 && newLines === 0) {
-		return `${DIAMOND} Edit ${path}`;
+		return `${marker} Edit ${path}`;
 	}
-	return formatEditCounts(path, oldLines, newLines);
+	return formatEditCounts(path, oldLines, newLines, marker);
 }
 
 /** The replacement pairs of an edit call, whether it streams `edits[]` or the legacy single pair. */
@@ -209,7 +210,15 @@ function inspectDetail(kind: InspectKind, args: unknown, cwd?: string): string |
 	return typeof path === "string" ? relativeReadPath(path, cwd) : undefined;
 }
 
-export function createQuietTools(cwd: string, burst: BurstTracker): AnyDefinition[] {
+export function createQuietTools(cwd: string, burst: BurstTracker, live: LiveGlyphs = createLiveGlyphs()): AnyDefinition[] {
+	/**
+	 * The marker a row wears this frame: the live glyph while it runs, `◆` once it has settled.
+	 * Every renderer calls it on every render — that is both what advances the glyph and what
+	 * releases the row from the shared repaint ticker when it settles.
+	 */
+	const rowMarker = (context: { state: unknown; isPartial: boolean; invalidate: () => void }): string =>
+		live.marker(context.state, context.isPartial === true, context.invalidate);
+
 	const originals = {
 		read: createReadToolDefinition(cwd),
 		bash: createBashToolDefinition(cwd),
@@ -224,16 +233,18 @@ export function createQuietTools(cwd: string, burst: BurstTracker): AnyDefinitio
 		withQuietShell(original, {
 			renderCall(args, theme, context) {
 				burst.register(context.toolCallId, context.invalidate);
+				const marker = rowMarker(context);
 				if (context.expanded) {
-					return headerLine(theme, headerOf(args));
+					return headerLine(theme, `${marker} ${headerOf(args)}`);
 				}
 				return emptyComponent();
 			},
 			renderResult(result, options, theme, context) {
-				if (options.isPartial) {
+				const marker = rowMarker(context);
+				if (context.isPartial) {
 					// Running, the row is its own one-line header; the output is the `Ctrl+O` detail, so
 					// nothing the row draws can change the transcript's height before it settles.
-					return headerLine(theme, headerOf(context.args));
+					return headerLine(theme, `${marker} ${headerOf(context.args)}`);
 				}
 				if (context.isError) {
 					burst.complete(context.toolCallId, kind, true);
@@ -261,24 +272,28 @@ export function createQuietTools(cwd: string, burst: BurstTracker): AnyDefinitio
 			const command = String(args?.command ?? "");
 			const summary = runSummary(args);
 			const seconds = runSeconds(context.state as RunClockState, context);
+			const marker = rowMarker(context);
 			// Expanded, the result renderer owns the row: full command plus the output.
 			if (context.isError || context.expanded) {
 				return emptyComponent();
 			}
 			return headerLine(
 				theme,
-				context.isPartial ? formatRunLine(command, summary, seconds) : formatRanLine(command, summary, seconds),
+				context.isPartial ? formatRunLine(command, summary, seconds, marker) : formatRanLine(command, summary, seconds),
 			);
 		},
 		renderResult(result, options, theme, context) {
 			const command = String(context.args?.command ?? "");
 			const output = resultText(result);
 			const seconds = runSeconds(context.state as RunClockState, context);
+			const marker = rowMarker(context);
 			if (context.isError) {
 				return errorLine(theme, formatRunError(command, parseExitCode(output), runSummary(context.args)));
 			}
 			if (options.expanded) {
-				const head = context.isPartial ? formatRunFull(command, seconds) : formatRanFull(command, seconds);
+				const head = context.isPartial
+					? formatRunFull(command, seconds, marker)
+					: formatRanFull(command, seconds);
 				return stack(
 					headerLine(theme, head),
 					output ? new Text(theme.fg("toolOutput", output), 0, 0) : undefined,
@@ -292,13 +307,16 @@ export function createQuietTools(cwd: string, burst: BurstTracker): AnyDefinitio
 
 	const edit = withQuietShell(originals.edit, {
 		renderCall(args, theme, context) {
+			const marker = rowMarker(context);
 			// A failed row belongs to the result renderer; the call header would repeat it above the error.
 			if (context.isError) {
 				return emptyComponent();
 			}
-			return headerLine(theme, editHeader(args));
+			return headerLine(theme, editHeader(args, marker));
 		},
 		renderResult(result, options, theme, context) {
+			// Settling the row also releases its live marker from the shared repaint ticker.
+			rowMarker(context);
 			if (context.isError) {
 				return errorLine(theme, formatToolError("edit", firstErrorLine(resultText(result))));
 			}
@@ -330,6 +348,7 @@ export function createQuietTools(cwd: string, burst: BurstTracker): AnyDefinitio
 			};
 		},
 		renderCall(args, theme, context) {
+			const marker = rowMarker(context);
 			// A failed row belongs to the result renderer; the call header would repeat it above the error.
 			if (context.isError) {
 				return emptyComponent();
@@ -337,11 +356,13 @@ export function createQuietTools(cwd: string, burst: BurstTracker): AnyDefinitio
 			const path = String(args?.path ?? "");
 			const lines = streamedLineCount(context.state, typeof args?.content === "string" ? args.content : "");
 			if (lines === 0) {
-				return headerLine(theme, `${DIAMOND} Write ${path}`);
+				return headerLine(theme, `${marker} Write ${path}`);
 			}
-			return headerLine(theme, formatWriteLines(path, lines));
+			return headerLine(theme, formatWriteLines(path, lines, marker));
 		},
 		renderResult(result, options, theme, context) {
+			// Settling the row also releases its live marker from the shared repaint ticker.
+			rowMarker(context);
 			if (context.isError) {
 				return errorLine(theme, formatToolError("write", firstErrorLine(resultText(result))));
 			}
@@ -370,13 +391,14 @@ export function registerQuietTools(
 	pi: ExtensionAPI,
 	burst = new BurstTracker(),
 	spacing: Spacing = createSpacing(),
+	live: LiveGlyphs = createLiveGlyphs(),
 ): BurstTracker {
 	const cache = new Map<string, AnyDefinition[]>();
 
 	const toolsFor = (cwd: string) => {
 		let tools = cache.get(cwd);
 		if (!tools) {
-			tools = createQuietTools(cwd, burst);
+			tools = createQuietTools(cwd, burst, live);
 			cache.set(cwd, tools);
 		}
 		return tools;

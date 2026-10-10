@@ -1,21 +1,23 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
+import { isLiveGlyph } from "./live.ts";
 import { DIAMOND, PROMPT } from "./summaries.ts";
 
 /**
  * Weight and accent for the one-line rows `summaries.ts` formats.
  *
  * The quiet style is dim almost everywhere, which leaves nothing to scan by. The emphasis
- * layer is the one place that decides what carries weight: the `◆` marker and the action
- * word are accented and bold, counts and paths are bold, and everything else — descriptions,
- * merge nouns, command text, and the elapsed clocks — stays in the theme's dim slot.
+ * layer is the one place that decides what carries weight: the `◆` marker (or, on a row that is
+ * still running, its animated glyph from `live.ts`) and the action word are accented and bold,
+ * counts and paths are bold, and everything else — descriptions, merge nouns, command text, and
+ * the elapsed clocks — stays in the theme's dim slot. The live glyph is the one exception to
+ * the accent colour: it is drawn bold in the theme's `warning` slot, so “still running” and
+ * “done” differ by colour as well as by glyph.
  *
  * It is a pure string transform, applied at the single choke point each row passes through
  * (`headerLine` for tool rows, `emphasizeThinkingLabel` for thinking labels), so the
  * formatters in `summaries.ts` keep returning plain text and stay testable as text.
  */
 export type EmphasisTheme = Pick<Theme, "fg" | "bold">;
-
-const MARKER = `${DIAMOND} `;
 
 /** `Read src/a.ts, test/b.ts +44` / `Listed 3 dirs` — one part per inspect kind. */
 const MERGE_PART = /^(Read|Listed|Searched|Found) (\d+) ([a-z]+)$/;
@@ -90,9 +92,18 @@ export function emphasizePromptMarker(theme: EmphasisTheme): string {
 	return `${theme.bold(theme.fg("accent", PROMPT))} `;
 }
 
-/** Splits the leading `◆ ` off a canonical row, whether or not the caller included it. */
-function splitMarker(text: string): string {
-	return text.startsWith(MARKER) ? text.slice(MARKER.length) : text;
+/** Splits the leading marker off a canonical row: `◆ `, or a live glyph + gap on a running row. */
+function takeMarker(text: string): { marker: string; rest: string } {
+	const head = /^(\S) /.exec(text);
+	const glyph = head?.[1];
+	if (glyph !== undefined && (glyph === DIAMOND || isLiveGlyph(glyph))) {
+		return { marker: glyph, rest: text.slice(glyph.length + 1) };
+	}
+	if (text === DIAMOND || isLiveGlyph(text)) {
+		return { marker: text, rest: "" };
+	}
+	// A caller that left the marker off gets `◆`; only a live row ever spells its glyph out.
+	return { marker: DIAMOND, rest: text };
 }
 
 /** Splits a row body into its first word (the action) and everything after it. */
@@ -152,19 +163,28 @@ function styleThoughtTail(
 }
 
 /**
+ * The marker as it is painted: `◆` in the accent slot, a live glyph bold in the `warning` slot.
+ * Nothing else about a row changes while it runs, so the marker is the whole running/settled cue.
+ */
+function markerAccent(theme: EmphasisTheme, marker: string): string {
+	return marker === DIAMOND ? accent(theme, DIAMOND) : theme.bold(theme.fg("warning", marker));
+}
+
+/**
  * Restyles a tool header: `◆ Run …`, `◆ Read src/a.ts, test/b.ts, Listed 3 dirs`,
- * `◆ Edit src/a.ts`, `◆ src/a.ts  +12 −3`, `◆ read src/a.ts`, `◆ Thought 1,234 tokens`.
+ * `◆ Edit src/a.ts`, `◆ src/a.ts  +12 −3`, `◆ read src/a.ts`, `◆ Thought 1,234 tokens` — or the
+ * same line with a live glyph in place of `◆` while the row is still running.
  *
  * Unknown shapes fall back to an accented action word plus dim text, which is the shape the
  * quiet style used for every row before the emphasis layer existed.
  */
 export function emphasizeHeader(theme: EmphasisTheme, text: string): string {
-	const rest = splitMarker(text);
-	const marker = accent(theme, DIAMOND);
+	const { marker, rest } = takeMarker(text);
+	const styled = markerAccent(theme, marker);
 	if (rest.length === 0) {
-		return marker;
+		return styled;
 	}
-	return `${marker} ${styleBody(theme, rest)}`;
+	return `${styled} ${styleBody(theme, rest)}`;
 }
 
 function styleBody(theme: EmphasisTheme, rest: string): string {
@@ -209,7 +229,8 @@ function styleBody(theme: EmphasisTheme, rest: string): string {
  * failure reads as a failure without a second hue.
  */
 export function emphasizeError(theme: EmphasisTheme, text: string): string {
-	const rest = splitMarker(text);
+	// A failure has already settled, so it always wears `◆` however it was handed in.
+	const rest = takeMarker(text).rest;
 	const head = splitHead(rest);
 	const prefix = head ? `${strong(theme, DIAMOND)} ${strong(theme, head.first)}` : strong(theme, DIAMOND);
 	const body = head ? head.tail : rest.length > 0 ? ` ${rest}` : "";
@@ -220,7 +241,8 @@ export function emphasizeError(theme: EmphasisTheme, text: string): string {
 
 /**
  * Restyles a thinking label (`◆ Thinking 1,234 tokens for 1.2s`, `◆ Thought 1,234 tokens for 0.4s`)
- * **as Markdown source**.
+ * **as Markdown source**. A streaming label carries the live glyph instead of `◆`, and it keeps
+ * it here: the label is rebuilt on every render, so the emphasis layer must not settle it early.
  *
  * pi renders a thinking block by wrapping each rendered line in `fg("thinkingText")` and
  * italic, and a nested `fg` closes with a `39m` foreground reset — so text that follows the
@@ -229,10 +251,11 @@ export function emphasizeError(theme: EmphasisTheme, text: string): string {
  */
 export function emphasizeThinkingLabel(theme: EmphasisTheme, text: string): string {
 	const dimmed = (value: string) => (value.length > 0 ? theme.fg("thinkingText", value) : "");
-	const marker = theme.bold(theme.fg("accent", DIAMOND));
-	const head = splitHead(splitMarker(text));
+	const { marker: glyph, rest } = takeMarker(text);
+	const marker = markerAccent(theme, glyph);
+	const head = splitHead(rest);
 	if (!head) {
-		return `${marker} ${dimmed(splitMarker(text))}`;
+		return `${marker} ${dimmed(rest)}`;
 	}
 	const { first, tail } = head;
 	const action = theme.bold(theme.fg("accent", first));

@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import { ToolExecutionComponent, initTheme } from "@earendil-works/pi-coding-agent";
 import { Container, visibleWidth } from "@earendil-works/pi-tui";
 import { expect } from "./expect.ts";
-import { fakeTheme, markerTheme } from "./fake-theme.ts";
+import { fakeTheme, LIVE, markerTheme } from "./fake-theme.ts";
 import {
 	ASK_USER_QUESTION,
 	answerValue,
@@ -19,6 +19,11 @@ import { createSpacing, patchContainer, visibleText } from "../src/spacing.ts";
 /** Plain (unstyled) text of a row, for assertions that are not about emphasis. */
 function plain(component: unknown): string[] | undefined {
 	return questionnaireRowLines(component as never, fakeTheme);
+}
+
+/** The same, with a caller-supplied live glyph instead of the settled `◆`. */
+function plain2(component: unknown, liveMarker: string): string[] | undefined {
+	return questionnaireRowLines(component as never, fakeTheme, liveMarker);
 }
 
 const QUESTIONS = {
@@ -78,6 +83,7 @@ describe("questionnaire row text", () => {
 
 	it("formats each state as one diamond line", () => {
 		expect(formatAsking("UI 框架")).toBe("◆ Asking UI 框架");
+		expect(formatAsking("UI 框架", "⠋")).toBe("⠋ Asking UI 框架");
 		expect(formatAsked("UI 框架")).toBe("◆ Asked UI 框架");
 		expect(formatDeclined("UI 框架")).toBe("◆ Asked UI 框架  declined");
 		expect(formatAnswerLine("UI 框架", "Claude Code UI")).toBe('"UI 框架"="Claude Code UI"');
@@ -106,6 +112,13 @@ describe("questionnaire row lines", () => {
 		expect(line).toContain("[accent]Asking[/]");
 		expect(line).toContain("[dim] UI 框架, 补丁范围[/]");
 		expect(plain(fakeRow())).toEqual(["◆ Asking UI 框架, 补丁范围"]);
+		// A caller that passes the live glyph gets it, bold in the warning slot: the questionnaire
+		// is still running, and the row should read that way like every other running row.
+		const [live] = questionnaireRowLines(fakeRow(), markerTheme, LIVE)!;
+		expect(live).toContain(`<b>[warning]${LIVE}[/]</b>`);
+		expect(plain2(fakeRow(), LIVE)).toEqual([`${LIVE} Asking UI 框架, 补丁范围`]);
+		// An answered row has settled and ignores the live glyph entirely.
+		expect(plain2(fakeRow({ result: ANSWERED, isPartial: false }), LIVE)).toEqual(["◆ Asked UI 框架, 补丁范围"]);
 	});
 
 	it("collapses the answered row to Asked", () => {
@@ -272,14 +285,15 @@ describe("questionnaire row against pi's component", () => {
 		const row = realRow();
 		const container = new Container();
 		container.addChild(row as never);
-		const spacing = createSpacing();
+		const spacing = createSpacing({ liveMarker: () => LIVE });
 		spacing.attachTui({ children: [container] });
 		spacing.attachTheme(fakeTheme);
 		spacing.sweep();
 
 		// Pending: the row still holds pi's padded call fallback, which is why it is substituted.
 		expect(row.render(80).length > 1).toBe(true);
-		expect(visibleText(container.render(80)[0] ?? "")).toBe("◆ Asking UI 框架, 补丁范围");
+		// …and it wears the live glyph, because the questionnaire is still running.
+		expect(visibleText(container.render(80)[0] ?? "")).toBe(`${LIVE} Asking UI 框架, 补丁范围`);
 
 		row.updateResult(ANSWERED as never, false);
 		const lines = container.render(80);

@@ -18,8 +18,10 @@ import { DIAMOND, formatToolError } from "./summaries.ts";
  *
  * - A **running** row is left to its own renderer, unless it is one of the FFF tools. Those are
  *   titled with their own arguments (`ffgrep /pattern/ in path`) and then collapse to the settled
- *   `◆` line like every other row; another package's tool may be drawing live progress of its
- *   own, and the settled row is the one the transcript keeps anyway.
+ *   `◆` line like every other row; while they run they wear the live glyph the caller passes in
+ *   (`live.ts`), so the patched rows read as “running” the same way this extension's own rows do.
+ *   Another package's tool may be drawing live progress of its own, and the settled row is the one
+ *   the transcript keeps anyway.
  * - **Collapsed**, a settled row is the one `◆` line; `Ctrl+O` adds the tool's full text output.
  *   That is the same bargain the built-in rows make. A row that carries images is left alone
  *   entirely — there is no text substitute for it.
@@ -195,10 +197,14 @@ function outputLines(theme: Theme, output: string): string[] {
  * The quiet lines for a foreign tool row, or `undefined` when the row is not one, belongs to
  * this extension, carries images, or is still running while not being an FFF tool (the caller
  * keeps the row's own rendering then).
+ *
+ * `liveMarker` is the animated glyph a running row wears instead of `◆`; it defaults to `◆` so a
+ * caller that drives its own repaint can keep the row still.
  */
 export function foreignToolRowLines(
 	component: AnyComponent | undefined,
 	theme: Theme,
+	liveMarker: string = DIAMOND,
 ): string[] | undefined {
 	if (!isToolRow(component) || isOwnedRow(component) || hasImages(component)) {
 		return undefined;
@@ -211,11 +217,11 @@ export function foreignToolRowLines(
 
 	const title = toolRowTitle(name, component.args);
 	const output = resultText(component.result);
-	const header = emphasizeHeader(theme, `${DIAMOND} ${title}`);
 
 	if (running) {
-		return [header];
+		return [emphasizeHeader(theme, `${liveMarker} ${title}`)];
 	}
+	const header = emphasizeHeader(theme, `${DIAMOND} ${title}`);
 	if ((component.result as { isError?: unknown } | undefined)?.isError === true) {
 		return [emphasizeError(theme, formatToolError(title, firstLine(output) || "error"))];
 	}

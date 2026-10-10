@@ -72,9 +72,9 @@ export function headerLabel(questions: readonly QuestionShape[]): string {
 	return questions.length === 1 ? "1 question" : `${questions.length} questions`;
 }
 
-/** The row while the questionnaire is awaited. */
-export function formatAsking(headers: string): string {
-	return `${DIAMOND} Asking ${headers}`;
+/** The row while the questionnaire is awaited: the live glyph, because it is still running. */
+export function formatAsking(headers: string, marker: string = DIAMOND): string {
+	return `${marker} Asking ${headers}`;
 }
 
 /** The row once the questionnaire has been answered. */
@@ -176,9 +176,14 @@ function expandedLines(theme: Theme, questions: QuestionShape[], result: ResultS
 /**
  * The quiet lines for a questionnaire row, or `undefined` when the component is not one (the
  * caller keeps pi's rendering then). Pending, answered, declined and failed each collapse to a
- * single line; only the expanded view adds the per-question answers.
+ * single line; only the expanded view adds the per-question answers. `liveMarker` is the
+ * animated glyph the pending row wears instead of `◆`.
  */
-export function questionnaireRowLines(component: AnyComponent | undefined, theme: Theme): string[] | undefined {
+export function questionnaireRowLines(
+	component: AnyComponent | undefined,
+	theme: Theme,
+	liveMarker: string = DIAMOND,
+): string[] | undefined {
 	if (!isQuestionnaireRow(component)) {
 		return undefined;
 	}
@@ -186,7 +191,7 @@ export function questionnaireRowLines(component: AnyComponent | undefined, theme
 	const headers = headerLabel(questions);
 	const result = component.result as ResultShape | undefined;
 	if (!result || component.isPartial === true) {
-		return [emphasizeHeader(theme, formatAsking(headers))];
+		return [emphasizeHeader(theme, formatAsking(headers, liveMarker))];
 	}
 	const details = result.details;
 	if (details?.error !== undefined) {

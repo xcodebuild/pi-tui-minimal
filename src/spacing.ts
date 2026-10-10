@@ -1,6 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
 import { escapesOf, isBlankLine } from "./ansi.ts";
+import { liveGlyph } from "./live.ts";
 import { isPromptRow, promptLines } from "./prompt.ts";
 import { questionnaireRowLines } from "./questionnaire.ts";
 import { foreignToolRowLines } from "./rows.ts";
@@ -199,6 +200,11 @@ function patchMessageContent(
  * without one, rows are only tightened. It is read at render time, not at patch time, because
  * the theme arrives with the session and the container may be patched before it.
  *
+ * `liveMarker` is the animated glyph those substituted rows wear while they run (`live.ts`).
+ * The patch owns no timer, and does not need one: pi repaints this container while a turn is in
+ * flight, and the frame is a pure function of the clock, so a running row advances on every
+ * repaint it gets.
+ *
  * The message content pass is installed before the render being patched, not after it: a message
  * that arrives finalized (restored history) or stops streaming may never be rendered again, and
  * one frame of pi's blank would then be the last thing on screen.
@@ -207,6 +213,7 @@ export function patchContainer(
 	container: AnyComponent,
 	getTheme: () => Theme | undefined = () => undefined,
 	isExpanded: () => boolean = () => false,
+	liveMarker: () => string = () => liveGlyph(),
 ): boolean {
 	if (!container || typeof container.render !== "function" || container[PATCHED]) {
 		return false;
@@ -226,6 +233,7 @@ export function patchContainer(
 			return lines;
 		}
 		const theme = getTheme();
+		const marker = liveMarker();
 		const kept: string[] = [];
 		let at = 0;
 		for (const entry of layout.children) {
@@ -239,8 +247,8 @@ export function patchContainer(
 			// The questionnaire first (it has the richer answer view), then any other foreign tool row.
 			const replaced =
 				theme && !marked
-					? (questionnaireRowLines(entry?.component, theme) ??
-						foreignToolRowLines(entry?.component, theme))
+					? (questionnaireRowLines(entry?.component, theme, marker) ??
+						foreignToolRowLines(entry?.component, theme, marker))
 					: undefined;
 			// pi's own rows are wrapped to the width by the `Text` they render into; a substituted
 			// row has no `Text`, so it is wrapped here.
@@ -305,7 +313,13 @@ export type Spacing = {
 /** Bounded retries, so a session with nothing to find does not re-walk on every render. */
 const MAX_RETRIES = 3;
 
-export function createSpacing(): Spacing {
+export type SpacingOptions = {
+	/** Test seam for the live glyph the substituted rows wear; defaults to the wall clock. */
+	liveMarker?: () => string;
+};
+
+export function createSpacing(options: SpacingOptions = {}): Spacing {
+	const liveMarker = options.liveMarker ?? (() => liveGlyph());
 	let root: unknown;
 	let theme: Theme | undefined;
 	let isExpanded: () => boolean = () => false;
@@ -327,6 +341,7 @@ export function createSpacing(): Spacing {
 			container,
 			() => theme,
 			() => isExpanded(),
+			liveMarker,
 		);
 		return patched;
 	};

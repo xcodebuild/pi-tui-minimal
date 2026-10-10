@@ -1,5 +1,9 @@
 import { homedir } from "node:os";
 
+/**
+ * The settled-row marker. A row that is still running wears an animated glyph from `live.ts`
+ * in its place, so the marker is what tells a finished line from a line that is still moving.
+ */
 export const DIAMOND = "◆";
 
 /** Anchor on the user's own turn; the quiet theme strips the background pi would paint there. */
@@ -106,11 +110,12 @@ export function formatDuration(seconds: number): string {
 }
 
 /**
- * Header for a run that is still going: the `Run` marker, the summary (or the raw command),
- * and the live ` for 1.2s` clock once the command has started executing.
+ * Header for a run that is still going: the marker, the summary (or the raw command), and the
+ * live ` for 1.2s` clock once the command has started executing. `marker` is the live glyph the
+ * call site took from `live.ts`; it defaults to `◆` so the formatter stays plain text.
  */
-export function formatRunLine(command: string, summary?: string, seconds?: number): string {
-	const head = `${DIAMOND} Run ${summary ? summary : formatRunTitle(command)}`;
+export function formatRunLine(command: string, summary?: string, seconds?: number, marker: string = DIAMOND): string {
+	const head = `${marker} Run ${summary ? summary : formatRunTitle(command)}`;
 	return seconds === undefined ? head : `${head} for ${formatDuration(seconds)}`;
 }
 
@@ -121,8 +126,8 @@ export function formatRanLine(command: string, summary?: string, seconds?: numbe
 }
 
 /** Header for an expanded run that is still going: the full, untruncated command. */
-export function formatRunFull(command: string, seconds?: number): string {
-	const head = `${DIAMOND} Run ${compactCommand(command)}`;
+export function formatRunFull(command: string, seconds?: number, marker: string = DIAMOND): string {
+	const head = `${marker} Run ${compactCommand(command)}`;
 	return seconds === undefined ? head : `${head} for ${formatDuration(seconds)}`;
 }
 
@@ -182,12 +187,14 @@ export function formatThought(seconds?: number, tokens?: number): string {
 }
 
 /**
- * The live thinking view once a run has begun: `◆ Thinking 1,234 tokens for 1.2s`.
- * With no elapsed time yet it degrades to the count alone (`◆ Thinking 1,234 tokens`).
+ * The live thinking view once a run has begun: `⠸ Thinking 1,234 tokens for 1.2s`. With no
+ * elapsed time yet it degrades to the count alone (`⠸ Thinking 1,234 tokens`). Thinking is the
+ * longest-running row there is, so the caller hands in the live glyph it is spinning on.
  */
-export function formatThinkingLive(seconds: number | undefined, tokens: number): string {
+export function formatThinkingLive(seconds: number | undefined, tokens: number, marker: string = DIAMOND): string {
 	const tail = thoughtTail(seconds, tokens);
-	return tail ? `${THINKING_HEADER} ${tail}` : THINKING_HEADER;
+	const head = `${marker} Thinking`;
+	return tail ? `${head} ${tail}` : head;
 }
 
 export function countDiffStats(diffText: string): { added: number; removed: number } {
@@ -228,13 +235,18 @@ export function countLines(text: string): number {
 }
 
 /** `◆ Write src/a.ts  128 lines` — the header a `write` row wears while and after it streams. */
-export function formatWriteLines(path: string, lines: number): string {
-	return `${DIAMOND} Write ${path}  ${lines} ${lines === 1 ? "line" : "lines"}`;
+export function formatWriteLines(path: string, lines: number, marker: string = DIAMOND): string {
+	return `${marker} Write ${path}  ${lines} ${lines === 1 ? "line" : "lines"}`;
 }
 
 /** `◆ Edit src/a.ts  −3 +12` — the header an `edit` row wears, old lines replaced by new ones. */
-export function formatEditCounts(path: string, oldLines: number, newLines: number): string {
-	return `${DIAMOND} Edit ${path}  −${oldLines} +${newLines}`;
+export function formatEditCounts(
+	path: string,
+	oldLines: number,
+	newLines: number,
+	marker: string = DIAMOND,
+): string {
+	return `${marker} Edit ${path}  −${oldLines} +${newLines}`;
 }
 
 export function formatToolError(name: string, detail: string): string {

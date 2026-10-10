@@ -4,7 +4,8 @@ import {
 	type ExtensionContext,
 	type MarkdownTransformer,
 } from "@earendil-works/pi-coding-agent";
-import { formatThought, formatThinkingLive, THINKING_HEADER } from "./summaries.ts";
+import { DIAMOND, formatThought, formatThinkingLive, THINKING_HEADER } from "./summaries.ts";
+import { liveGlyph } from "./live.ts";
 import { emphasizeThinkingLabel, type EmphasisTheme } from "./emphasis.ts";
 
 /**
@@ -62,7 +63,8 @@ export function thinkingRunsFromMessage(message: ThinkingMessage): string[] {
 }
 
 /**
- * Streaming view: the `◆ Thinking 1,234 tokens for 1.2s` header, on one line.
+ * Streaming view: the `⠸ Thinking 1,234 tokens for 1.2s` header (the live glyph is the caller's;
+ * `marker` defaults to `◆` for callers that want the plain form), on one line.
  *
  * The thinking text itself is not shown while it streams, so the block never changes height —
  * the clock and the count are the only things that move, and a wider number cannot push the
@@ -78,11 +80,12 @@ export function thinkingStream(
 	markdown: string,
 	seconds?: number,
 	styleLabel: (text: string) => string = (text) => text,
+	marker: string = DIAMOND,
 ): string {
 	if (markdown.trim().length === 0) {
 		return markdown;
 	}
-	return styleLabel(formatThinkingLive(seconds, estimateThinkingTokens(markdown)));
+	return styleLabel(formatThinkingLive(seconds, estimateThinkingTokens(markdown), marker));
 }
 
 /**
@@ -122,14 +125,20 @@ export type ThinkingControllerOptions = {
 	styleLabel?: (text: string) => string;
 	/** Test seam for the live clock; defaults to `Date.now`. */
 	now?: () => number;
+	/**
+	 * Test seam for the running label's glyph; defaults to the wall-clock frame from `live.ts`,
+	 * so the thinking row spins with every other running row.
+	 */
+	liveMarker?: () => string;
 	/** Test seam for Ctrl+O; defaults to pi's `ui.getToolsExpanded()`. */
 	isExpanded?: () => boolean;
 };
 
 /**
  * Thinking streams inline in the transcript, as part of the running turn: while it arrives the
- * transformer replaces the block with a single `◆ Thinking 1,234 tokens for 1.2s` line, and
- * once the assistant message is final it collapses in place to `◆ Thought 1,234 tokens for 0.4s`.
+ * transformer replaces the block with a single `⠸ Thinking 1,234 tokens for 1.2s` line (the
+ * live glyph, `live.ts`), and once the assistant message is final it collapses in place to
+ * `◆ Thought 1,234 tokens for 0.4s`.
  *
  * Neither view draws the thinking text, so the transcript below the block never moves while the
  * model reasons — the live line is one row tall whether the count is 3 digits or 5.
@@ -140,6 +149,7 @@ export type ThinkingControllerOptions = {
 export function createThinkingController(options: ThinkingControllerOptions = {}): ThinkingController {
 	const isHidden = options.isThinkingHidden ?? thinkingIsHidden;
 	const now = options.now ?? (() => Date.now());
+	const liveMarker = options.liveMarker ?? (() => liveGlyph());
 	/** Finalized run text -> collapsed label, so each block keeps its own duration and count. */
 	const finished = new Map<string, string>();
 	let startedAt: number | undefined;
@@ -231,7 +241,7 @@ export function createThinkingController(options: ThinkingControllerOptions = {}
 				return markdown;
 			}
 			if (context.isStreaming) {
-				return thinkingStream(markdown, elapsedSeconds(), styleLabel);
+				return thinkingStream(markdown, elapsedSeconds(), styleLabel, liveMarker());
 			}
 			// A restored run has no duration in the session, but its text is here to count.
 			const label =

@@ -10,6 +10,7 @@ import {
 	UNKNOWN_THOUGHT_LABEL,
 } from "../src/thinking.ts";
 import { formatThinkingTokens, THINKING_HEADER } from "../src/summaries.ts";
+import { LIVE } from "./fake-theme.ts";
 
 function uiCtx(theme?: unknown, getToolsExpanded?: () => boolean) {
 	const notifications: string[] = [];
@@ -148,7 +149,7 @@ describe("thinkingStream under pi's Markdown", () => {
 describe("thinking controller", () => {
 	it("streams a one-line token counter and collapses to a duration plus the total", () => {
 		let clock = 1000;
-		const controller = createThinkingController({ now: () => clock });
+		const controller = createThinkingController({ now: () => clock, liveMarker: () => LIVE });
 		const ctx = uiCtx();
 		const message = thinkingMessage("a".repeat(400));
 		controller.onSessionStart(ctx as any);
@@ -162,7 +163,7 @@ describe("thinking controller", () => {
 				isStreaming: true,
 				availableWidth: 80,
 			}),
-		).toBe("◆ Thinking 100 tokens for 1.5s");
+		).toBe(`${LIVE} Thinking 100 tokens for 1.5s`);
 		controller.handleMessageEnd(message, ctx as any);
 		expect(
 			controller.transform("a".repeat(400), {
@@ -290,7 +291,7 @@ describe("thinking controller", () => {
 	});
 
 	it("accents the labels with the session theme", () => {
-		const controller = createThinkingController();
+		const controller = createThinkingController({ liveMarker: () => LIVE });
 		const theme = {
 			fg: (color: string, text: string) => `[${color}]${text}[/]`,
 			bold: (text: string) => `<b>${text}</b>`,
@@ -301,7 +302,7 @@ describe("thinking controller", () => {
 		expect(
 			controller.transform("a".repeat(8), { messageType: "assistant-thinking", isStreaming: true, availableWidth: 80 }),
 		).toBe(
-			"<b>[accent]◆[/]</b> <b>[accent]Thinking[/]</b>" +
+			`<b>[warning]${LIVE}[/]</b> <b>[accent]Thinking[/]</b>` +
 				"[thinkingText] [/]<b>[thinkingText]2 tokens[/]</b>",
 		);
 	});

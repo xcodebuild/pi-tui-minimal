@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import { ToolExecutionComponent, initTheme } from "@earendil-works/pi-coding-agent";
 import { Container } from "@earendil-works/pi-tui";
 import { expect } from "./expect.ts";
-import { fakeTheme, markerTheme } from "./fake-theme.ts";
+import { fakeTheme, LIVE, markerTheme } from "./fake-theme.ts";
 import {
 	FFF_TOOL_NAMES,
 	QUIET_TOOL_NAMES,
@@ -31,6 +31,11 @@ function fakeRow(overrides: Record<string, unknown> = {}) {
 /** Plain row text (identity theme). */
 function plain(component: unknown): string[] | undefined {
 	return foreignToolRowLines(component as never, fakeTheme)?.map((line) => line.trimEnd());
+}
+
+/** The same, with the live glyph a running row would wear. */
+function plainLive(component: unknown): string[] | undefined {
+	return foreignToolRowLines(component as never, fakeTheme, LIVE)?.map((line) => line.trimEnd());
 }
 
 const DONE = { content: [{ type: "text", text: "src/composer.ts\n 12: useEffect(() => {" }] };
@@ -107,6 +112,13 @@ describe("foreign tool row lines", () => {
 		// No output block while it runs: the row cannot change height between running and settled.
 		expect(plain(row)).toEqual(["◆ ffgrep /useEffect/ in src"]);
 		expect(plain(fakeRow())).toEqual(["◆ ffgrep /useEffect/ in src"]);
+		// Passed the live glyph, the running row wears it — bold in the warning slot.
+		expect(plainLive(fakeRow())).toEqual([`${LIVE} ffgrep /useEffect/ in src`]);
+		expect(plainLive(row)).toEqual([`${LIVE} ffgrep /useEffect/ in src`]);
+		const [glyph] = foreignToolRowLines(fakeRow(), markerTheme, LIVE)!;
+		expect(glyph).toContain(`<b>[warning]${LIVE}[/]</b>`);
+		// A settled row has nothing to spin, so it keeps `◆` whatever the caller passes.
+		expect(plainLive(fakeRow({ result: DONE, isPartial: false }))).toEqual(["◆ ffgrep /useEffect/ in src"]);
 	});
 
 	it("reads a failed FFF row as an error line", () => {
@@ -207,15 +219,16 @@ describe("foreign tool row in the transcript", () => {
 		const row = realRow("ffgrep", { pattern: "padding" });
 		const container = new Container();
 		container.addChild(row as never);
-		const spacing = createSpacing();
+		const spacing = createSpacing({ liveMarker: () => LIVE });
 		spacing.attachTui({ children: [container] });
 		spacing.attachTheme(fakeTheme);
 		spacing.sweep();
 
-		// Running, the row is its header: no output block, so its height cannot change.
-		expect(container.render(80).map((line) => visibleText(line))).toEqual(["◆ ffgrep /padding/ in ."]);
+		// Running, the row is its header: no output block, so its height cannot change, and the
+		// header wears the live glyph the spacing patch passed in.
+		expect(container.render(80).map((line) => visibleText(line))).toEqual([`${LIVE} ffgrep /padding/ in .`]);
 		row.updateResult({ content: [{ type: "text", text: "1\n2\n3\n4\n5\n6" }] } as never, true);
-		expect(container.render(80).map((line) => visibleText(line))).toEqual(["◆ ffgrep /padding/ in ."]);
+		expect(container.render(80).map((line) => visibleText(line))).toEqual([`${LIVE} ffgrep /padding/ in .`]);
 	});
 
 	it("keeps every FFF tool name in the set the title formatter knows", () => {
