@@ -2,6 +2,23 @@
 
 Quiet live-then-collapse rendering for the [pi](https://github.com/badlogic/pi-mono) coding agent. Load the extension and the style is on: no extra command, no toggle.
 
+## Demo
+
+[![asciicast: a pi session rendered by pi-quiet-tui](https://asciinema.org/a/1mvGYZl61op4tcGI.png)](https://asciinema.org/a/1mvGYZl61op4tcGI)
+
+93 s, 120×38, a real session in this repository — click the frame to play it on asciinema.org. The prompt is `Update report.html from repo without asking me`, and the turn shows what quiet rendering looks like from the inside: the live `◆ Thinking 1,099 tokens for 5.2s` counter collapsing to `◆ Thought`, inspect calls merging onto one diamond line (`Read README.md, report.html`), `Run` rows titled by the model's own `description` rather than the command text, a failed row keeping the theme's `error` color (`Run Search cast for node version strings exit 1`), and one-line `Edit` rows carrying `−3 +5` while the report is re-verified against `wc -l`, `npm test` and the OpenSpec task counts.
+
+<details>
+<summary>Player embed</summary>
+
+```html
+<script src="https://asciinema.org/a/1mvGYZl61op4tcGI.js" id="asciicast-1mvGYZl61op4tcGI" async></script>
+```
+
+`<script>` is stripped by GitHub and npm, so the link above uses the thumbnail (`…/a/1mvGYZl61op4tcGI.png`) as the poster instead; the script form is for a docs site you render yourself.
+
+</details>
+
 ## What you see
 
 - Weight and accent carry the hierarchy: the `◆` marker and the action word (`Run`, `Read`, `Listed`, `Edit`, `Write`, `Thought`) are accented and bold, counts and paths are bold, and everything else in the row — descriptions, merge nouns, command text, the `for 1.2s` clocks — stays in the theme's `dim` color. A `+12` / `−3` count pair uses pi's `toolDiffAdded` / `toolDiffRemoved` colors, so an addition and a deletion never look alike. A failed row keeps the theme's `error` color, with the marker, the tool name and the `exit N` code bold. Nothing else is decorated; the raw command text is never accented.
