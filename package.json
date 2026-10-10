@@ -1,0 +1,25 @@
+{
+	"name": "pi-quiet-tui",
+	"version": "0.1.0",
+	"description": "Quiet live-then-collapse TUI for the pi coding agent",
+	"type": "module",
+	"keywords": ["pi-package"],
+	"files": ["extensions", "src", "themes", "README.md"],
+	"scripts": {
+		"test": "node --experimental-strip-types --test test/*.test.ts"
+	},
+	"pi": {
+		"extensions": ["./extensions"],
+		"themes": ["./themes"]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*",
+		"typebox": "*"
+	},
+	"devDependencies": {
+		"@earendil-works/pi-coding-agent": "*",
+		"@earendil-works/pi-tui": "*",
+		"typebox": "*"
+	}
+}
