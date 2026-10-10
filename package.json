@@ -1,10 +1,23 @@
 {
-	"name": "pi-quiet-tui",
+	"name": "pi-tui-minimal",
 	"version": "0.1.0",
 	"description": "Quiet live-then-collapse TUI for the pi coding agent",
 	"type": "module",
+	"license": "MIT",
+	"author": "xcodebuild <xcodebuild@gmail.com>",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/xcodebuild/pi-tui-minimal.git"
+	},
+	"homepage": "https://github.com/xcodebuild/pi-tui-minimal#readme",
+	"bugs": {
+		"url": "https://github.com/xcodebuild/pi-tui-minimal/issues"
+	},
 	"keywords": ["pi-package"],
 	"files": ["extensions", "src", "themes", "README.md"],
+	"engines": {
+		"node": ">=22.19.0"
+	},
 	"scripts": {
 		"test": "node --experimental-strip-types --test test/*.test.ts"
 	},
