@@ -16,6 +16,7 @@ import { cleanSummary, summarizeCommand } from "./command-summary.ts";
 import { additionsDiff, numberedDiff } from "./diff.ts";
 import { createLiveGlyphs, type LiveGlyphs } from "./live.ts";
 import {
+	absolutePath,
 	countLines,
 	countNewlines,
 	DIAMOND,
@@ -27,7 +28,8 @@ import {
 	formatRunLine,
 	formatToolError,
 	formatWriteLines,
-	relativeReadPath,
+	shortPath,
+	shortReadPath,
 	type InspectKind,
 } from "./summaries.ts";
 import { colorDiff, emptyComponent, errorLine, headerLine, resultText, stack } from "./render.ts";
@@ -144,9 +146,18 @@ function runSeconds(
 
 type EditReplacement = { oldText?: unknown; newText?: unknown };
 
+/**
+ * The path a row prints: a collapsed row shortens it (`src/a.ts`, `~/notes.md`), the expanded row
+ * spells the same file out in full. Every row that prints a path goes through here.
+ */
+function rowPath(args: unknown, context: { cwd: string; expanded: boolean }, fallback = ""): string {
+	const value = (args as { path?: unknown } | undefined)?.path;
+	const path = typeof value === "string" && value ? value : fallback;
+	return context.expanded ? absolutePath(path, context.cwd) : shortPath(path, context.cwd);
+}
+
 /** `◆ Edit src/a.ts  −3 +12` — or the bare path before the counts have streamed in. */
-function editHeader(args: unknown, marker: string = DIAMOND): string {
-	const path = String((args as { path?: unknown } | undefined)?.path ?? "");
+function editHeader(path: string, args: unknown, marker: string = DIAMOND): string {
 	const { oldLines, newLines } = editLineCounts(args);
 	if (oldLines === 0 && newLines === 0) {
 		return `${marker} Edit ${path}`;
@@ -200,14 +211,14 @@ function withBashSummary(original: AnyDefinition): AnyDefinition {
 
 /**
  * The detail a merged inspect line shows for a completed call: a `read` lists the path it read
- * (relative to the session, so the row stays readable); the other kinds only count.
+ * (shortened, so the row stays readable); the other kinds only count.
  */
 function inspectDetail(kind: InspectKind, args: unknown, cwd?: string): string | undefined {
 	if (kind !== "read") {
 		return undefined;
 	}
 	const path = (args as { path?: unknown } | undefined)?.path;
-	return typeof path === "string" ? relativeReadPath(path, cwd) : undefined;
+	return typeof path === "string" ? shortReadPath(path, cwd) : undefined;
 }
 
 export function createQuietTools(cwd: string, burst: BurstTracker, live: LiveGlyphs = createLiveGlyphs()): AnyDefinition[] {
@@ -229,13 +240,17 @@ export function createQuietTools(cwd: string, burst: BurstTracker, live: LiveGly
 		ls: createLsToolDefinition(cwd),
 	};
 
-	const inspect = (kind: InspectKind, original: AnyDefinition, headerOf: (args: any) => string): AnyDefinition =>
+	const inspect = (
+		kind: InspectKind,
+		original: AnyDefinition,
+		headerOf: (args: any, context: any) => string,
+	): AnyDefinition =>
 		withQuietShell(original, {
 			renderCall(args, theme, context) {
 				burst.register(context.toolCallId, context.invalidate);
 				const marker = rowMarker(context);
 				if (context.expanded) {
-					return headerLine(theme, `${marker} ${headerOf(args)}`);
+					return headerLine(theme, `${marker} ${headerOf(args, context)}`);
 				}
 				return emptyComponent();
 			},
@@ -244,7 +259,7 @@ export function createQuietTools(cwd: string, burst: BurstTracker, live: LiveGly
 				if (context.isPartial) {
 					// Running, the row is its own one-line header; the output is the `Ctrl+O` detail, so
 					// nothing the row draws can change the transcript's height before it settles.
-					return headerLine(theme, `${marker} ${headerOf(context.args)}`);
+					return headerLine(theme, `${marker} ${headerOf(context.args, context)}`);
 				}
 				if (context.isError) {
 					burst.complete(context.toolCallId, kind, true);
@@ -312,7 +327,7 @@ export function createQuietTools(cwd: string, burst: BurstTracker, live: LiveGly
 			if (context.isError) {
 				return emptyComponent();
 			}
-			return headerLine(theme, editHeader(args, marker));
+			return headerLine(theme, editHeader(rowPath(args, context), args, marker));
 		},
 		renderResult(result, options, theme, context) {
 			// Settling the row also releases its live marker from the shared repaint ticker.
@@ -353,7 +368,7 @@ export function createQuietTools(cwd: string, burst: BurstTracker, live: LiveGly
 			if (context.isError) {
 				return emptyComponent();
 			}
-			const path = String(args?.path ?? "");
+			const path = rowPath(args, context);
 			const lines = streamedLineCount(context.state, typeof args?.content === "string" ? args.content : "");
 			if (lines === 0) {
 				return headerLine(theme, `${marker} Write ${path}`);
@@ -377,13 +392,13 @@ export function createQuietTools(cwd: string, burst: BurstTracker, live: LiveGly
 	});
 
 	return [
-		inspect("read", originals.read, (args) => `read ${args?.path ?? ""}`),
+		inspect("read", originals.read, (args, context) => `read ${rowPath(args, context)}`),
 		bash,
 		edit,
 		write,
 		inspect("find", originals.find, (args) => `find ${args?.pattern ?? ""}`),
 		inspect("grep", originals.grep, (args) => `grep ${args?.pattern ?? ""}`),
-		inspect("ls", originals.ls, (args) => `ls ${args?.path ?? "."}`),
+		inspect("ls", originals.ls, (args, context) => `ls ${rowPath(args, context, ".")}`),
 	];
 }
 

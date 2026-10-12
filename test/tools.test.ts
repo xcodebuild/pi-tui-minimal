@@ -210,7 +210,41 @@ describe("quiet tool renderers", () => {
 		);
 		expect(expanded).toBe("+1 a");
 		expect(paintLine(edit.renderResult!(result, { expanded: false, isPartial: false }, fakeTheme, renderContext({ args, isPartial: false })))).toBe("");
-		expect(paintLine(edit.renderCall!(args, fakeTheme, renderContext({ expanded: true, isPartial: false })))).toBe("◆ Edit src/a.ts");
+		expect(paintLine(edit.renderCall!(args, fakeTheme, renderContext({ expanded: true, isPartial: false })))).toBe(
+			`◆ Edit ${join(process.cwd(), "src/a.ts")}`,
+		);
+	});
+
+	it("shortens the path of a collapsed row and spells it out when the row is expanded", () => {
+		const tools = quietTools("/repo", new BurstTracker());
+		const write = tools.find((tool) => tool.name === "write")!;
+		const edit = tools.find((tool) => tool.name === "edit")!;
+		const read = tools.find((tool) => tool.name === "read")!;
+		const args = {
+			path: "/repo/src/a.ts",
+			content: "a\nb",
+			edits: [{ oldText: "bye", newText: "hello" }],
+		};
+		const row = (tool: (typeof tools)[number], expanded: boolean) =>
+			paintLine(tool.renderCall!(args, fakeTheme, renderContext({ args, cwd: "/repo", expanded })));
+
+		expect(row(write, false)).toBe("◆ Write src/a.ts  2 lines");
+		expect(row(write, true)).toBe("◆ Write /repo/src/a.ts  2 lines");
+		expect(row(edit, false)).toBe("◆ Edit src/a.ts  −1 +1");
+		expect(row(edit, true)).toBe("◆ Edit /repo/src/a.ts  −1 +1");
+		// A collapsed read is the burst's merged line, so its own call row draws nothing.
+		expect(row(read, false)).toBe("");
+		expect(row(read, true)).toBe("◆ read /repo/src/a.ts");
+		expect(
+			paint(
+				read.renderResult!(
+					{ content: [{ type: "text", text: "body" }], details: {} },
+					{ expanded: false, isPartial: false },
+					fakeTheme,
+					renderContext({ args, cwd: "/repo", toolCallId: "p1" }),
+				),
+			),
+		).toContain("Read src/a.ts");
 	});
 
 	it("merges a mixed inspect burst and unmerges when expanded", () => {
@@ -292,7 +326,7 @@ describe("quiet tool renderers", () => {
 					renderContext({ toolCallId: "i2", args: { path: "." }, isPartial: true, expanded: true }),
 				),
 			),
-		).toBe(`${LIVE} ls .`);
+		).toBe(`${LIVE} ls ${process.cwd()}`);
 	});
 
 	it("splits inspect tools across bash", () => {
@@ -422,7 +456,7 @@ describe("quiet tool metadata and execute", () => {
 		);
 		expect(expanded).toContain("hello");
 		expect(expanded).not.toMatch(/edit/);
-		// The header stays the call renderer's; expanded only adds the diff body.
+		// The header stays the call renderer's; expanded only adds the diff body — and spells the path out.
 		expect(
 			paintLine(
 				edit.renderCall!(
@@ -431,7 +465,7 @@ describe("quiet tool metadata and execute", () => {
 					renderContext({ expanded: true, isPartial: false }),
 				),
 			),
-		).toBe("◆ Edit src/a.ts  −1 +1");
+		).toBe(`◆ Edit ${join(process.cwd(), "src/a.ts")}  −1 +1`);
 		const err = paint(
 			edit.renderResult!(
 				{ content: [{ type: "text", text: "Error: missing" }], details: {} },

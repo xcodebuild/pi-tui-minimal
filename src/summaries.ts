@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { isAbsolute, resolve } from "node:path";
 
 /**
  * The settled-row marker. A row that is still running wears an animated glyph from `live.ts`
@@ -29,11 +30,11 @@ function nameList(values: readonly string[]): string {
 const MAX_READ_PATH = 40;
 
 /**
- * A read path as the merged row lists it: relative to the session's cwd when it is inside it,
- * `~`-shortened when it is under the home directory, otherwise as the model wrote it. Long
- * paths are truncated, because the merged row has to stay one row.
+ * A path as a collapsed row writes it: relative to the session's cwd when it is inside it,
+ * `~`-shortened when it is under the home directory, otherwise as the model wrote it. The
+ * expanded row uses `absolutePath` instead, so the two states describe the same file.
  */
-export function relativeReadPath(path: string, cwd?: string, home = homedir()): string {
+export function shortPath(path: string, cwd?: string, home = homedir()): string {
 	let out = path.trim().replace(/^\.\//, "");
 	if (!out) {
 		return "";
@@ -43,7 +44,38 @@ export function relativeReadPath(path: string, cwd?: string, home = homedir()): 
 	} else if (home && (out === home || out.startsWith(`${home}/`))) {
 		out = `~${out.slice(home.length)}`;
 	}
+	return out;
+}
+
+/**
+ * A read path as the merged row lists it: the shortening every collapsed row wears, cut to
+ * `MAX_READ_PATH` characters because up to two of them share a line with the rest of the burst.
+ */
+export function shortReadPath(path: string, cwd?: string, home = homedir()): string {
+	const out = shortPath(path, cwd, home);
 	return out.length <= MAX_READ_PATH ? out : `${out.slice(0, MAX_READ_PATH - 1)}…`;
+}
+
+/**
+ * A path as an expanded row writes it: always absolute, because the row that gave up its
+ * one-line shape spends the room on the one thing worth spelling out. A `~` resolves against
+ * the home directory, any other relative path against the session cwd.
+ */
+export function absolutePath(path: string, cwd?: string, home = homedir()): string {
+	const out = path.trim();
+	if (!out) {
+		return "";
+	}
+	if (out === "~") {
+		return home;
+	}
+	if (out.startsWith("~/")) {
+		return `${home}${out.slice(1)}`;
+	}
+	if (isAbsolute(out)) {
+		return out;
+	}
+	return cwd ? resolve(cwd, out) : out;
 }
 
 /**

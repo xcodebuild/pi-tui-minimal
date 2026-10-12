@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import { expect } from "./expect.ts";
 import {
+	absolutePath,
 	countDiffStats,
 	countLines,
 	formatDiffCounts,
@@ -16,7 +17,8 @@ import {
 	formatTokenCount,
 	formatThought,
 	formatWriteLines,
-	relativeReadPath,
+	shortPath,
+	shortReadPath,
 	THINKING_HEADER,
 } from "../src/summaries.ts";
 
@@ -48,21 +50,45 @@ describe("formatInspectMerge", () => {
 	});
 });
 
-describe("relativeReadPath", () => {
+describe("shortPath", () => {
 	it("shortens paths inside the session", () => {
-		expect(relativeReadPath("/repo/src/a.ts", "/repo")).toBe("src/a.ts");
-		expect(relativeReadPath("./src/a.ts", "/repo")).toBe("src/a.ts");
-		expect(relativeReadPath("src/a.ts", "/repo")).toBe("src/a.ts");
+		expect(shortPath("/repo/src/a.ts", "/repo")).toBe("src/a.ts");
+		expect(shortPath("./src/a.ts", "/repo")).toBe("src/a.ts");
+		expect(shortPath("src/a.ts", "/repo")).toBe("src/a.ts");
 	});
 
 	it("keeps a path outside the session readable", () => {
-		expect(relativeReadPath("/home/me/notes.md", "/repo", "/home/me")).toBe("~/notes.md");
-		expect(relativeReadPath("/elsewhere/a.ts", "/repo", "/home/me")).toBe("/elsewhere/a.ts");
+		expect(shortPath("/home/me/notes.md", "/repo", "/home/me")).toBe("~/notes.md");
+		expect(shortPath("/elsewhere/a.ts", "/repo", "/home/me")).toBe("/elsewhere/a.ts");
 	});
 
+	it("leaves a long path whole, because only the merged read row has to stay one line", () => {
+		expect(shortPath(`${`src/${"x".repeat(80)}`}.ts`, "/repo").length).toBe(87);
+	});
+});
+
+describe("shortReadPath", () => {
 	it("truncates a path that would wrap the merged row", () => {
 		const long = `src/${"x".repeat(80)}.ts`;
-		expect(relativeReadPath(long, "/repo").length).toBe(40);
+		expect(shortReadPath(long, "/repo").length).toBe(40);
+		expect(shortReadPath(long, "/repo").endsWith("…")).toBe(true);
+	});
+});
+
+describe("absolutePath", () => {
+	it("resolves a path the model wrote against the session", () => {
+		expect(absolutePath("src/a.ts", "/repo")).toBe("/repo/src/a.ts");
+		expect(absolutePath("./src/a.ts", "/repo")).toBe("/repo/src/a.ts");
+		expect(absolutePath("../b.ts", "/repo/src")).toBe("/repo/b.ts");
+	});
+
+	it("leaves an absolute path alone", () => {
+		expect(absolutePath("/repo/src/a.ts", "/elsewhere")).toBe("/repo/src/a.ts");
+	});
+
+	it("resolves a home shorthand", () => {
+		expect(absolutePath("~/notes.md", "/repo", "/home/me")).toBe("/home/me/notes.md");
+		expect(absolutePath("~", "/repo", "/home/me")).toBe("/home/me");
 	});
 });
 
