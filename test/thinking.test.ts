@@ -93,9 +93,9 @@ describe("estimateThinkingTokens", () => {
 
 describe("thinkingStream", () => {
 	it("shows the header and a live token count, never the thinking text", () => {
-		expect(thinkingStream("a\nb\nc\nd")).toBe("◆ Thinking 2 tokens");
+		expect(thinkingStream("a\nb\nc\nd")).toBe("· Thinking 2 tokens");
 		expect(thinkingStream("a\nb\nc\nd")).toBe(formatThinkingTokens(2));
-		expect(thinkingStream("x".repeat(8000))).toBe("◆ Thinking 2,000 tokens");
+		expect(thinkingStream("x".repeat(8000))).toBe("· Thinking 2,000 tokens");
 	});
 
 	it("is always exactly one line, so nothing below it can move", () => {
@@ -157,22 +157,28 @@ describe("thinking controller", () => {
 		expect(ctx.notifications).toEqual([]);
 		controller.handleMessageUpdate(message);
 		clock = 2500;
-		expect(
-			controller.transform("a".repeat(400), {
-				messageType: "assistant-thinking",
-				isStreaming: true,
-				availableWidth: 80,
-			}),
-		).toBe(`${LIVE} Thinking 100 tokens for 1.5s`);
+		// The count stays in the row; the clock goes into the metric column, right-aligned to the
+		// width the transformer was handed.
+		const streaming = controller.transform("a".repeat(400), {
+			messageType: "assistant-thinking",
+			isStreaming: true,
+			availableWidth: 80,
+		});
+		expect(streaming.startsWith(`  ${LIVE} Thinking 100 tokens`)).toBe(true);
+		expect(streaming.trimEnd().endsWith("1.5s")).toBe(true);
+		expect(streaming.split("\n").length).toBe(1);
+
 		controller.handleMessageEnd(message, ctx as any);
-		expect(
-			controller.transform("a".repeat(400), {
-				messageType: "assistant-thinking",
-				isStreaming: false,
-				availableWidth: 80,
-			}),
-		).toBe("◆ Thought 100 tokens for 1.5s");
-		expect(ctx.hiddenLabel).toBe("◆ Thought 100 tokens for 1.5s");
+		const collapsed = controller.transform("a".repeat(400), {
+			messageType: "assistant-thinking",
+			isStreaming: false,
+			availableWidth: 80,
+		});
+		expect(collapsed.startsWith("  · Thought 100 tokens")).toBe(true);
+		expect(collapsed.trimEnd().endsWith("1.5s")).toBe(true);
+		// The hidden label is drawn by pi's own one-line renderer, which is never given a width,
+		// so the clock has no column to sit in there and stays inline.
+		expect(ctx.hiddenLabel).toBe("· Thought 100 tokens for 1.5s");
 	});
 
 	it("hands the thinking text back once Ctrl+O expands", () => {
@@ -244,11 +250,11 @@ describe("thinking controller", () => {
 				isStreaming: false,
 				availableWidth: 80,
 			}),
-		).toBe("◆ Thought 100 tokens");
+		).toBe("  · Thought 100 tokens");
 		expect(
 			controller.transform("", { messageType: "assistant-thinking", isStreaming: false, availableWidth: 80 }),
-		).toBe(UNKNOWN_THOUGHT_LABEL);
-		expect(UNKNOWN_THOUGHT_LABEL).toBe("◆ Thought");
+		).toBe(`  ${UNKNOWN_THOUGHT_LABEL}`);
+		expect(UNKNOWN_THOUGHT_LABEL).toBe("· Thought");
 	});
 
 	it("never rewrites other Markdown", () => {
@@ -298,12 +304,11 @@ describe("thinking controller", () => {
 		};
 		const ctx = uiCtx(theme);
 		controller.onSessionStart(ctx as any);
-		expect(ctx.hiddenLabel).toBe("<b>[accent]◆[/]</b> <b>[accent]Thinking[/]</b>");
+		expect(ctx.hiddenLabel).toBe("[dim]·[/] [dim]Thinking[/]");
 		expect(
 			controller.transform("a".repeat(8), { messageType: "assistant-thinking", isStreaming: true, availableWidth: 80 }),
 		).toBe(
-			`<b>[warning]${LIVE}[/]</b> <b>[accent]Thinking[/]</b>` +
-				"[thinkingText] [/]<b>[thinkingText]2 tokens[/]</b>",
+			`  [dim]${LIVE}[/] [dim]Thinking[/]` + "[thinkingText] [/][thinkingText]2 tokens[/]",
 		);
 	});
 
@@ -318,9 +323,9 @@ describe("thinking controller", () => {
 		const controller = createThinkingController({ styleLabel: (text) => `<${text}>` });
 		const ctx = uiCtx({ fg: () => "theme", bold: () => "theme" });
 		controller.onSessionStart(ctx as any);
-		expect(ctx.hiddenLabel).toBe("<◆ Thinking>");
+		expect(ctx.hiddenLabel).toBe("<· Thinking>");
 		expect(
 			controller.transform("gone", { messageType: "assistant-thinking", isStreaming: false, availableWidth: 80 }),
-		).toBe("<◆ Thought 1 token>");
+		).toBe("  <· Thought 1 token>");
 	});
 });

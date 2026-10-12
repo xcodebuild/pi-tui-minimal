@@ -54,6 +54,7 @@ describe("summarizeCommand", () => {
 
 	it("joins many commands with a remainder count", () => {
 		expect(summary("ls a; ls b; ls c; ls d; ls e")).toBe("Listed a; Listed b; Listed c +2 more");
+		expect(summary("rm a b c d")).toBe("Removed a, b +2 more");
 	});
 
 	it("returns undefined for empty input and keeps unknown commands readable", () => {

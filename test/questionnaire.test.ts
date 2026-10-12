@@ -12,18 +12,35 @@ import {
 	formatDeclined,
 	headerLabel,
 	isQuestionnaireRow,
-	questionnaireRowLines,
+	questionnaireRow,
 } from "../src/questionnaire.ts";
+import { layoutQuietRow } from "../src/render.ts";
 import { createSpacing, patchContainer, visibleText } from "../src/spacing.ts";
 
-/** Plain (unstyled) text of a row, for assertions that are not about emphasis. */
-function plain(component: unknown): string[] | undefined {
-	return questionnaireRowLines(component as never, fakeTheme);
+/**
+ * A substituted questionnaire row, laid out the way the transcript patch lays it out, with the
+ * gutter stripped and the metric column's padding collapsed: these assertions are about what the
+ * row says. The alignment is asserted in `layout.test.ts`.
+ */
+function plain(component: unknown, liveMarker = "◆"): string[] | undefined {
+	const row = questionnaireRow(component as never, fakeTheme, liveMarker);
+	if (!row) {
+		return undefined;
+	}
+	return layoutQuietRow(fakeTheme, row, 200).map((line) =>
+		visibleText(line).trimEnd().replace(/^ {2}/, "").replace(/ {2,}/g, " "),
+	);
 }
 
 /** The same, with a caller-supplied live glyph instead of the settled `◆`. */
 function plain2(component: unknown, liveMarker: string): string[] | undefined {
-	return questionnaireRowLines(component as never, fakeTheme, liveMarker);
+	return plain(component, liveMarker);
+}
+
+/** The styled lines of a row, for the emphasis assertions (gutter included). */
+function styledLines(component: unknown, theme: unknown, liveMarker = "◆"): string[] | undefined {
+	const row = questionnaireRow(component as never, theme as never, liveMarker);
+	return row && layoutQuietRow(theme as never, row, 200);
 }
 
 const QUESTIONS = {
@@ -104,18 +121,18 @@ describe("questionnaire row lines", () => {
 		expect(isQuestionnaireRow({ toolName: "bash", updateResult() {} })).toBe(false);
 		expect(isQuestionnaireRow({ toolName: ASK_USER_QUESTION })).toBe(false);
 		expect(isQuestionnaireRow(undefined)).toBe(false);
-		expect(questionnaireRowLines({ toolName: "bash" }, markerTheme)).toBeUndefined();
+		expect(styledLines({ toolName: "bash" }, markerTheme)).toBeUndefined();
 	});
 
 	it("collapses the pending row to Asking", () => {
-		const [line] = questionnaireRowLines(fakeRow(), markerTheme)!;
+		const [line] = styledLines(fakeRow(), markerTheme)!;
 		expect(line).toContain("[accent]Asking[/]");
 		expect(line).toContain("[dim] UI 框架, 补丁范围[/]");
 		expect(plain(fakeRow())).toEqual(["◆ Asking UI 框架, 补丁范围"]);
-		// A caller that passes the live glyph gets it, bold in the warning slot: the questionnaire
+		// A caller that passes the live glyph gets it, bold in the accent slot: the questionnaire
 		// is still running, and the row should read that way like every other running row.
-		const [live] = questionnaireRowLines(fakeRow(), markerTheme, LIVE)!;
-		expect(live).toContain(`<b>[warning]${LIVE}[/]</b>`);
+		const [live] = styledLines(fakeRow(), markerTheme, LIVE)!;
+		expect(live).toContain(`<b>[accent]${LIVE}[/]</b>`);
 		expect(plain2(fakeRow(), LIVE)).toEqual([`${LIVE} Asking UI 框架, 补丁范围`]);
 		// An answered row has settled and ignores the live glyph entirely.
 		expect(plain2(fakeRow({ result: ANSWERED, isPartial: false }), LIVE)).toEqual(["◆ Asked UI 框架, 补丁范围"]);
@@ -123,7 +140,7 @@ describe("questionnaire row lines", () => {
 
 	it("collapses the answered row to Asked", () => {
 		const row = fakeRow({ result: ANSWERED, isPartial: false });
-		const lines = questionnaireRowLines(row, markerTheme)!;
+		const lines = styledLines(row, markerTheme)!;
 		expect(lines.length).toBe(1);
 		expect(plain(row)).toEqual(["◆ Asked UI 框架, 补丁范围"]);
 	});
@@ -137,7 +154,7 @@ describe("questionnaire row lines", () => {
 			"notes: 只改渲染",
 		]);
 		// The answer hangs off the chip, not off the raw question text.
-		const [, answer] = questionnaireRowLines(row, markerTheme)!;
+		const [, answer] = styledLines(row, markerTheme)!;
 		expect(answer).toContain('[toolOutput]"UI 框架"="Claude Code UI"[/]');
 	});
 
@@ -146,7 +163,7 @@ describe("questionnaire row lines", () => {
 			result: { content: [{ type: "text", text: "User declined to answer questions" }], details: { answers: [], cancelled: true } },
 			isPartial: false,
 		});
-		expect(plain(row)).toEqual(["◆ Asked UI 框架, 补丁范围  declined"]);
+		expect(plain(row)).toEqual(["◆ Asked UI 框架, 补丁范围 declined"]);
 	});
 
 	it("keeps partial answers on a declined row when expanded", () => {
@@ -158,7 +175,7 @@ describe("questionnaire row lines", () => {
 			isPartial: false,
 			expanded: true,
 		});
-		expect(plain(row)).toEqual(["◆ Asked UI 框架, 补丁范围  declined", '"UI 框架"="Claude Code UI"']);
+		expect(plain(row)).toEqual(["◆ Asked UI 框架, 补丁范围 declined", '"UI 框架"="Claude Code UI"']);
 	});
 
 	it("reads a failed questionnaire as an error line", () => {
@@ -169,10 +186,10 @@ describe("questionnaire row lines", () => {
 			},
 			isPartial: false,
 		});
-		const [line] = questionnaireRowLines(row, markerTheme)!;
+		const [line] = styledLines(row, markerTheme)!;
 		expect(line).toContain("[error]");
 		expect(line).toContain("<b>ask_user_question</b>");
-		expect(plain(row)).toEqual(["◆ ask_user_question  UI not available (running in non-interactive mode)"]);
+		expect(plain(row)).toEqual(["× ask_user_question UI not available (running in non-interactive mode)"]);
 	});
 
 	it("falls back to the envelope text when a session stored no answer details", () => {
@@ -209,7 +226,7 @@ describe("questionnaire row in the transcript", () => {
 
 		const lines = container.render(80);
 		expect(lines.length).toBe(1);
-		expect(visibleText(lines[0])).toBe("◆ Asked UI 框架, 补丁范围");
+		expect(visibleText(lines[0])).toBe("  ◆ Asked UI 框架, 补丁范围");
 		// The row rendered 5 lines and now contributes 1; the click offset makes up the rest.
 		container.handleMouse({ type: "click", button: "left", y: 0, height: 1, width: 80, screenX: 0, screenY: 0 });
 		expect(row.clicks).toEqual([4]);
@@ -234,7 +251,9 @@ describe("questionnaire row in the transcript", () => {
 		const container = chat([row]);
 		const spacing = createSpacing();
 		spacing.attachTui({ children: [container] });
-		spacing.attachTheme(markerTheme);
+		// The identity theme, because this asserts real column widths: `markerTheme` writes its
+		// styling as plain text, which `visibleWidth` would count as content.
+		spacing.attachTheme(fakeTheme);
 		spacing.sweep();
 
 		const lines = container.render(24);
@@ -293,19 +312,19 @@ describe("questionnaire row against pi's component", () => {
 		// Pending: the row still holds pi's padded call fallback, which is why it is substituted.
 		expect(row.render(80).length > 1).toBe(true);
 		// …and it wears the live glyph, because the questionnaire is still running.
-		expect(visibleText(container.render(80)[0] ?? "")).toBe(`${LIVE} Asking UI 框架, 补丁范围`);
+		expect(visibleText(container.render(80)[0] ?? "")).toBe(`  ${LIVE} Asking UI 框架, 补丁范围`);
 
 		row.updateResult(ANSWERED as never, false);
 		const lines = container.render(80);
 		expect(lines.length).toBe(1);
-		expect(visibleText(lines[0])).toBe("◆ Asked UI 框架, 补丁范围");
+		expect(visibleText(lines[0])).toBe("  ◆ Asked UI 框架, 补丁范围");
 
 		row.setExpanded(true);
 		expect(container.render(80).map((line) => visibleText(line))).toEqual([
-			"◆ Asked UI 框架, 补丁范围",
-			'"UI 框架"="Claude Code UI"',
-			'"补丁范围"="不要补丁"',
-			"notes: 只改渲染",
+			"  ◆ Asked UI 框架, 补丁范围",
+			'  "UI 框架"="Claude Code UI"',
+			'  "补丁范围"="不要补丁"',
+			"  notes: 只改渲染",
 		]);
 	});
 });

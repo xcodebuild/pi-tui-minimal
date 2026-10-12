@@ -1,7 +1,7 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { emphasizeError, emphasizeHeader } from "./emphasis.ts";
+import type { QuietRow } from "./render.ts";
 import { ASK_USER_QUESTION } from "./questionnaire.ts";
-import { DIAMOND, formatToolError } from "./summaries.ts";
+import { DIAMOND, toolErrorParts } from "./summaries.ts";
 
 /**
  * The quiet row for a tool **this extension does not register** — `ffgrep`/`fffind` from
@@ -201,11 +201,11 @@ function outputLines(theme: Theme, output: string): string[] {
  * `liveMarker` is the animated glyph a running row wears instead of `◆`; it defaults to `◆` so a
  * caller that drives its own repaint can keep the row still.
  */
-export function foreignToolRowLines(
+export function foreignToolRow(
 	component: AnyComponent | undefined,
 	theme: Theme,
 	liveMarker: string = DIAMOND,
-): string[] | undefined {
+): QuietRow | undefined {
 	if (!isToolRow(component) || isOwnedRow(component) || hasImages(component)) {
 		return undefined;
 	}
@@ -219,14 +219,13 @@ export function foreignToolRowLines(
 	const output = resultText(component.result);
 
 	if (running) {
-		return [emphasizeHeader(theme, `${liveMarker} ${title}`)];
+		return { parts: { title: `${liveMarker} ${title}` } };
 	}
-	const header = emphasizeHeader(theme, `${DIAMOND} ${title}`);
 	if ((component.result as { isError?: unknown } | undefined)?.isError === true) {
-		return [emphasizeError(theme, formatToolError(title, firstLine(output) || "error"))];
+		return { error: true, parts: toolErrorParts(title, firstLine(output) || "error") };
 	}
 	if (component.expanded !== true) {
-		return [header];
+		return { parts: { title: `${DIAMOND} ${title}` } };
 	}
-	return [header, ...outputLines(theme, output)];
+	return { parts: { title: `${DIAMOND} ${title}` }, output: outputLines(theme, output) };
 }

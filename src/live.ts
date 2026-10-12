@@ -7,7 +7,7 @@ import { DIAMOND } from "./summaries.ts";
  * nothing while it is still going: a `Run` row, a streaming `write`, a thinking block and a
  * settled row all opened with the same glyph, so the only cue that work was in flight was the
  * clock text (and the thinking row had none at all). Every live row now carries an animated
- * glyph in the theme's `warning` slot, and only a settled row keeps `◆` — the glyph is what
+ * glyph in the theme's accent slot, and only a settled row keeps `◆` — the glyph is what
  * separates "still running" from "done" at a glance.
  *
  * The frame is a pure function of the clock (`liveGlyph`), so every live row on screen spins in

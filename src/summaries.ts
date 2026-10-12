@@ -1,5 +1,4 @@
 import { homedir } from "node:os";
-import { isAbsolute, resolve } from "node:path";
 
 /**
  * The settled-row marker. A row that is still running wears an animated glyph from `live.ts`
@@ -7,8 +6,73 @@ import { isAbsolute, resolve } from "node:path";
  */
 export const DIAMOND = "◆";
 
+/**
+ * The marker a thinking label wears (`· Thinking 1,234 tokens`). Thinking is meta-commentary
+ * rather than an action, so it steps back: a light marker, dim text, no accent, no weight.
+ */
+export const THOUGHT_MARKER = "·";
+
+/** The marker a failed row wears, so a failure reads as one before its colour does. */
+export const ERROR_MARKER = "×";
+
 /** Anchor on the user's own turn; the quiet theme strips the background pi would paint there. */
 export const PROMPT = "❯";
+
+/**
+ * One row, split where its layout needs it: the title is what the row says, the metric is the
+ * measurement that has to line up with every other row's measurement. Keeping the two apart is
+ * what lets the layout right-align the numbers into a column; the formatters below stay plain
+ * text so they stay assertable, and `joinRow` rebuilds the one-line shape the transcript used
+ * before the metric column existed.
+ */
+export type RowParts = {
+	title: string;
+	metric?: string;
+	/**
+	 * Columns to keep free for a metric that appears or grows later — a clock that starts at 1s, a
+	 * line count that climbs while the file streams. Reserving them is what keeps a row's height
+	 * the same while it runs and after it settles.
+	 */
+	metricReserve?: number;
+};
+
+/** The widest a measurement may be and still be laid out as a column rather than as prose. */
+export const METRIC_COLUMN_MAX = 24;
+
+/** Room for the widest clock (`1h 2m 3s`); rows that can carry one reserve it from the start. */
+export const CLOCK_RESERVE = 8;
+
+/** Room for the widest streamed count (`12,345 lines` / `−1,234 +5,678`). */
+export const COUNT_RESERVE = 12;
+
+/** The one-line shape of a row: the metric trails the title. Used by the pre-column callers. */
+export function joinRow(parts: RowParts): string {
+	return parts.metric === undefined ? parts.title : `${parts.title}  ${parts.metric}`;
+}
+
+/**
+ * The clock a metric column carries, or nothing while the row has no duration to show.
+ *
+ * A run that took a tenth of a second is not worth a measurement: drawing `0.0s` next to it
+ * spends nine columns of the row and a whole column of the metric alignment on nothing. The
+ * live glyph is what says a row is still moving, so a sub-second row drops its clock too.
+ */
+function clockMetric(seconds?: number): string | undefined {
+	return seconds === undefined || !Number.isFinite(seconds) || seconds < 1 ? undefined : formatDuration(seconds);
+}
+
+/**
+ * The shape of a clocked row with no column to align to — a one-line label drawn by a renderer
+ * this extension does not own (the hidden-thinking label): the measurement trails as ` for 1.2s`.
+ */
+export function joinInlineRow(parts: RowParts): string {
+	return parts.metric === undefined ? parts.title : `${parts.title} for ${parts.metric}`;
+}
+
+/** The same, for the callers that predate the metric column. */
+function inlineClock(parts: RowParts): string {
+	return joinInlineRow(parts);
+}
 
 export type InspectKind = "read" | "ls" | "grep" | "find";
 
@@ -18,13 +82,13 @@ function plural(count: number, singular: string, pluralForm: string): string {
 	return `${count} ${count === 1 ? singular : pluralForm}`;
 }
 
-/** Up to two names, then the count of the rest: `a, b +44`. Same shape `command-summary.ts` uses. */
+/** Up to two names, then the count of the rest: `a, b +44 more`. */
 function nameList(values: readonly string[]): string {
 	const unique = [...new Set(values.filter(Boolean))];
 	if (unique.length <= 2) {
 		return unique.join(", ");
 	}
-	return `${unique.slice(0, 2).join(", ")} +${unique.length - 2}`;
+	return `${unique.slice(0, 2).join(", ")} +${unique.length - 2} more`;
 }
 
 const MAX_READ_PATH = 40;
@@ -48,38 +112,56 @@ export function shortPath(path: string, cwd?: string, home = homedir()): string 
 }
 
 /**
- * A read path as the merged row lists it: the shortening every collapsed row wears, cut to
+ * A read path as the merged row lists it: the shortening every collapsed row wears, elided to
  * `MAX_READ_PATH` characters because up to two of them share a line with the rest of the burst.
  */
 export function shortReadPath(path: string, cwd?: string, home = homedir()): string {
-	const out = shortPath(path, cwd, home);
-	return out.length <= MAX_READ_PATH ? out : `${out.slice(0, MAX_READ_PATH - 1)}…`;
+	return elideMiddle(shortPath(path, cwd, home), MAX_READ_PATH);
 }
 
+/** Longest path an expanded row prints before it, too, is elided. */
+const MAX_EXPANDED_PATH = 72;
+
 /**
- * A path as an expanded row writes it: always absolute, because the row that gave up its
- * one-line shape spends the room on the one thing worth spelling out. A `~` resolves against
- * the home directory, any other relative path against the session cwd.
+ * A path as an expanded row writes it: the same shortening a collapsed row wears — relative to
+ * the session's cwd, `~`-prefixed under the home directory — because a full absolute path spends
+ * the whole row on directories the user already knows. Only a path outside both roots, and one
+ * longer than `MAX_EXPANDED_PATH`, is elided; the elision is from the left, so the file name is
+ * the last thing given up.
  */
-export function absolutePath(path: string, cwd?: string, home = homedir()): string {
-	const out = path.trim();
-	if (!out) {
-		return "";
-	}
-	if (out === "~") {
-		return home;
-	}
-	if (out.startsWith("~/")) {
-		return `${home}${out.slice(1)}`;
-	}
-	if (isAbsolute(out)) {
-		return out;
-	}
-	return cwd ? resolve(cwd, out) : out;
+export function longPath(path: string, cwd?: string, home = homedir()): string {
+	return elideStart(shortPath(path, cwd, home), MAX_EXPANDED_PATH);
+}
+
+/** `…/to/file.ts` — everything before the tail is dropped, so the tail stays readable. */
+function elideStart(value: string, max: number): string {
+	return value.length <= max ? value : `…${value.slice(value.length - max + 1)}`;
 }
 
 /**
- * One merged inspect line. Reads list the paths they touched (`Read src/a.ts, test/b.ts +44`)
+ * A path elided in the middle so its file name survives: `src/very/…/file.ts`.
+ *
+ * The name is what identifies the file, so cutting from the right — which is what this used to
+ * do — loses the only part of the path worth reading. The head keeps as many leading directory
+ * segments as fit; a file name longer than the whole budget is cut from the left instead.
+ */
+export function elideMiddle(path: string, max: number): string {
+	if (path.length <= max || max < 3) {
+		return path;
+	}
+	const slash = path.lastIndexOf("/");
+	const name = slash >= 0 ? path.slice(slash + 1) : path;
+	if (name.length + 2 >= max) {
+		return elideStart(name, max);
+	}
+	const head = path.slice(0, max - name.length - 2);
+	const cut = head.lastIndexOf("/");
+	const kept = cut >= 0 ? head.slice(0, cut + 1) : "";
+	return `${kept}…/${name}`;
+}
+
+/**
+ * One merged inspect line. Reads list the paths they touched (`Read src/a.ts, test/b.ts +44 more`)
  * when the callers recorded them, and fall back to their count when they did not; every other
  * kind counts.
  */
@@ -99,6 +181,19 @@ export function formatInspectMerge(counts: InspectCounts, reads: readonly string
 		parts.push(`Found ${plural(counts.find, "pattern", "patterns")}`);
 	}
 	return parts.join(", ");
+}
+
+/**
+ * One merged line for a run of quick commands: `Ran 3 commands: git status, npm test +1 more`, with the
+ * time they took together in the metric column. Only runs that each settled in under a second are
+ * covered, so the line never hides work that took real time.
+ */
+export function runMergeParts(count: number, summaries: readonly string[], seconds?: number): RowParts {
+	return {
+		title: `${DIAMOND} Ran ${plural(count, "command", "commands")}: ${nameList(summaries)}`,
+		metric: clockMetric(seconds),
+		metricReserve: CLOCK_RESERVE,
+	};
 }
 
 const MAX_RUN_TITLE = 72;
@@ -142,40 +237,76 @@ export function formatDuration(seconds: number): string {
 }
 
 /**
- * Header for a run that is still going: the marker, the summary (or the raw command), and the
- * live ` for 1.2s` clock once the command has started executing. `marker` is the live glyph the
- * call site took from `live.ts`; it defaults to `◆` so the formatter stays plain text.
+ * Header for a run that is still going: the marker, the title, and (once the command has started)
+ * the live clock. `marker` is the live glyph the call site took from `live.ts`; `◆` keeps the
+ * formatter plain-text for callers that do not have one.
  */
-export function formatRunLine(command: string, summary?: string, seconds?: number, marker: string = DIAMOND): string {
-	const head = `${marker} Run ${summary ? summary : formatRunTitle(command)}`;
-	return seconds === undefined ? head : `${head} for ${formatDuration(seconds)}`;
+export function runParts(command: string, summary?: string, seconds?: number, marker: string = DIAMOND): RowParts {
+	return {
+		title: `${marker} Run ${summary ? summary : formatRunTitle(command)}`,
+		metric: clockMetric(seconds),
+		metricReserve: CLOCK_RESERVE,
+	};
 }
 
-/** Header for a finished run: the verb turns past tense and the duration settles. */
-export function formatRanLine(command: string, summary?: string, seconds?: number): string {
-	const head = `${DIAMOND} Ran ${summary ? summary : formatRunTitle(command)}`;
-	return seconds === undefined ? head : `${head} for ${formatDuration(seconds)}`;
+/** Header for a finished run: the verb turns past tense and the clock settles. */
+export function ranParts(command: string, summary?: string, seconds?: number): RowParts {
+	return {
+		title: `${DIAMOND} Ran ${summary ? summary : formatRunTitle(command)}`,
+		metric: clockMetric(seconds),
+		metricReserve: CLOCK_RESERVE,
+	};
 }
 
 /** Header for an expanded run that is still going: the full, untruncated command. */
-export function formatRunFull(command: string, seconds?: number, marker: string = DIAMOND): string {
-	const head = `${marker} Run ${compactCommand(command)}`;
-	return seconds === undefined ? head : `${head} for ${formatDuration(seconds)}`;
+export function runFullParts(command: string, seconds?: number, marker: string = DIAMOND): RowParts {
+	return {
+		title: `${marker} Run ${compactCommand(command)}`,
+		metric: clockMetric(seconds),
+		metricReserve: CLOCK_RESERVE,
+	};
 }
 
 /** Header for an expanded run that has finished: full command plus its duration. */
+export function ranFullParts(command: string, seconds?: number): RowParts {
+	return {
+		title: `${DIAMOND} Ran ${compactCommand(command)}`,
+		metric: clockMetric(seconds),
+		metricReserve: CLOCK_RESERVE,
+	};
+}
+
+/** A failed run: the title, with the exit code as the measurement. */
+export function runErrorParts(command: string, exitCode?: number | string, summary?: string): RowParts {
+	const code = exitCode === undefined || exitCode === "" ? "error" : `exit ${exitCode}`;
+	return {
+		title: `${ERROR_MARKER} Run ${summary ? summary : formatRunTitle(command)}`,
+		metric: code,
+	};
+}
+
+export function formatRunLine(command: string, summary?: string, seconds?: number, marker: string = DIAMOND): string {
+	return inlineClock(runParts(command, summary, seconds, marker));
+}
+
+export function formatRanLine(command: string, summary?: string, seconds?: number): string {
+	return inlineClock(ranParts(command, summary, seconds));
+}
+
+export function formatRunFull(command: string, seconds?: number, marker: string = DIAMOND): string {
+	return inlineClock(runFullParts(command, seconds, marker));
+}
+
 export function formatRanFull(command: string, seconds?: number): string {
-	const head = `${DIAMOND} Ran ${compactCommand(command)}`;
-	return seconds === undefined ? head : `${head} for ${formatDuration(seconds)}`;
+	return inlineClock(ranFullParts(command, seconds));
 }
 
 export function formatRunError(command: string, exitCode?: number | string, summary?: string): string {
-	const code = exitCode === undefined || exitCode === "" ? "error" : `exit ${exitCode}`;
-	return `${DIAMOND} Run ${summary ? summary : formatRunTitle(command)}  ${code}`;
+	return joinRow(runErrorParts(command, exitCode, summary));
 }
 
-/** Header line for thinking that is still streaming; collapsed runs use `formatThought`. */
-export const THINKING_HEADER = `${DIAMOND} Thinking`;
+/** Header line for thinking that is still streaming; collapsed runs use the `Thought` form. */
+export const THINKING_HEADER = `${THOUGHT_MARKER} Thinking`;
 
 /** Thousands separators, hand-rolled because `toLocaleString` depends on the host locale. */
 export function formatCount(count: number): string {
@@ -188,45 +319,45 @@ export function formatTokenCount(tokens: number): string {
 }
 
 /**
- * The moving parts of a thinking label, one space apart and in reading order: the count first
- * (`1,234 tokens`), then the clock (`for 1.2s`). Either part is left off when it is unknown, so
- * a restored run (`12 tokens`) and a run with no count yet (`for 1.2s`) both degrade cleanly.
+ * The whole live thinking view: the header, then the count of what has arrived so far. One line,
+ * so the block below it cannot move as thinking arrives — the number only grows wider.
+ *
+ * The count stays in the title rather than the metric column: it is what makes the row worth
+ * reading, and keeping it next to the word leaves the column for the clock.
  */
-function thoughtTail(seconds?: number, tokens?: number): string {
-	const parts: string[] = [];
-	if (tokens !== undefined) {
-		parts.push(formatTokenCount(tokens));
-	}
-	if (seconds !== undefined && !Number.isNaN(seconds)) {
-		parts.push(`for ${formatDuration(seconds)}`);
-	}
-	return parts.join(" ");
-}
-
-/**
- * The whole live thinking view: `◆ Thinking 1,234 tokens` (or `◆ Thinking 1,234 tokens for 1.2s`
- * once the clock is running). One line, so the block below it cannot move as thinking arrives —
- * the number only grows wider, it never adds a row.
- */
-export function formatThinkingTokens(tokens: number): string {
-	return `${THINKING_HEADER} ${formatTokenCount(tokens)}`;
-}
-
-/** `◆ Thought 1,234 tokens for 0.4s`; either tail part is left off when it is unknown. */
-export function formatThought(seconds?: number, tokens?: number): string {
-	const tail = thoughtTail(seconds, tokens);
-	return tail ? `${DIAMOND} Thought ${tail}` : `${DIAMOND} Thought`;
-}
-
-/**
- * The live thinking view once a run has begun: `⠸ Thinking 1,234 tokens for 1.2s`. With no
- * elapsed time yet it degrades to the count alone (`⠸ Thinking 1,234 tokens`). Thinking is the
- * longest-running row there is, so the caller hands in the live glyph it is spinning on.
- */
-export function formatThinkingLive(seconds: number | undefined, tokens: number, marker: string = DIAMOND): string {
-	const tail = thoughtTail(seconds, tokens);
+export function thinkingParts(tokens?: number, marker: string = THOUGHT_MARKER, seconds?: number): RowParts {
 	const head = `${marker} Thinking`;
-	return tail ? `${head} ${tail}` : head;
+	return {
+		title: tokens === undefined ? head : `${head} ${formatTokenCount(tokens)}`,
+		metric: clockMetric(seconds),
+		metricReserve: CLOCK_RESERVE,
+	};
+}
+
+export function formatThinkingTokens(tokens: number): string {
+	return joinRow(thinkingParts(tokens));
+}
+
+/** `· Thought 1,234 tokens` plus, once it is known, the clock as the row's measurement. */
+export function thoughtParts(seconds?: number, tokens?: number, marker: string = THOUGHT_MARKER): RowParts {
+	const head = `${marker} Thought`;
+	return {
+		title: tokens === undefined ? head : `${head} ${formatTokenCount(tokens)}`,
+		metric: clockMetric(seconds),
+		metricReserve: CLOCK_RESERVE,
+	};
+}
+
+export function formatThought(seconds?: number, tokens?: number): string {
+	return inlineClock(thoughtParts(seconds, tokens));
+}
+
+/**
+ * The live thinking view once a run has begun: the marker (the live glyph the caller is spinning
+ * on), the word, the count so far, and the clock as the row's measurement.
+ */
+export function formatThinkingLive(seconds: number | undefined, tokens: number, marker: string = THOUGHT_MARKER): string {
+	return inlineClock(thinkingParts(tokens, marker, seconds));
 }
 
 export function countDiffStats(diffText: string): { added: number; removed: number } {
@@ -242,8 +373,12 @@ export function countDiffStats(diffText: string): { added: number; removed: numb
 	return { added, removed };
 }
 
+export function diffParts(path: string, added: number, removed: number): RowParts {
+	return { title: `${DIAMOND} ${path}`, metric: `+${added} −${removed}` };
+}
+
 export function formatDiffCounts(path: string, added: number, removed: number): string {
-	return `${DIAMOND} ${path}  +${added} −${removed}`;
+	return joinRow(diffParts(path, added, removed));
 }
 
 /** Newlines in a text block; the basis for the incremental counter `tools.ts` keeps per stream. */
@@ -267,23 +402,40 @@ export function countLines(text: string): number {
 }
 
 /** `◆ Write src/a.ts  128 lines` — the header a `write` row wears while and after it streams. */
-export function formatWriteLines(path: string, lines: number, marker: string = DIAMOND): string {
-	return `${marker} Write ${path}  ${lines} ${lines === 1 ? "line" : "lines"}`;
+/** `◆ Write src/a.ts` with `128 lines` as the row's measurement. */
+export function writeParts(path: string, lines: number, marker: string = DIAMOND): RowParts {
+	return {
+		title: `${marker} Write ${path}`,
+		metric: `${lines} ${lines === 1 ? "line" : "lines"}`,
+		metricReserve: COUNT_RESERVE,
+	};
 }
 
-/** `◆ Edit src/a.ts  −3 +12` — the header an `edit` row wears, old lines replaced by new ones. */
-export function formatEditCounts(
-	path: string,
-	oldLines: number,
-	newLines: number,
-	marker: string = DIAMOND,
-): string {
-	return `${marker} Edit ${path}  −${oldLines} +${newLines}`;
+export function formatWriteLines(path: string, lines: number, marker: string = DIAMOND): string {
+	return joinRow(writeParts(path, lines, marker));
+}
+
+/** `◆ Edit src/a.ts` with `−3 +12` as the row's measurement. */
+export function editParts(path: string, oldLines: number, newLines: number, marker: string = DIAMOND): RowParts {
+	return {
+		title: `${marker} Edit ${path}`,
+		metric: `−${oldLines} +${newLines}`,
+		metricReserve: COUNT_RESERVE,
+	};
+}
+
+export function formatEditCounts(path: string, oldLines: number, newLines: number, marker: string = DIAMOND): string {
+	return joinRow(editParts(path, oldLines, newLines, marker));
+}
+
+/** A failed row: the tool name and its argument, with the failure as the measurement. */
+export function toolErrorParts(name: string, detail: string): RowParts {
+	const trimmed = detail.trim().split("\n")[0] ?? "error";
+	return { title: `${ERROR_MARKER} ${name}`, metric: trimmed };
 }
 
 export function formatToolError(name: string, detail: string): string {
-	const trimmed = detail.trim().split("\n")[0] ?? "error";
-	return `${DIAMOND} ${name}  ${trimmed}`;
+	return joinRow(toolErrorParts(name, detail));
 }
 
 export function diamondLine(text: string): string {

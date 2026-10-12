@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
-import { Text } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import {
 	createBashToolDefinition,
@@ -16,23 +15,34 @@ import { cleanSummary, summarizeCommand } from "./command-summary.ts";
 import { additionsDiff, numberedDiff } from "./diff.ts";
 import { createLiveGlyphs, type LiveGlyphs } from "./live.ts";
 import {
-	absolutePath,
+	COUNT_RESERVE,
 	countLines,
 	countNewlines,
 	DIAMOND,
-	formatEditCounts,
-	formatRanFull,
-	formatRanLine,
-	formatRunError,
-	formatRunFull,
-	formatRunLine,
-	formatToolError,
-	formatWriteLines,
+	editParts,
+	type RowParts,
+	longPath,
+	ranFullParts,
+	ranParts,
+	runErrorParts,
+	runFullParts,
+	runParts,
 	shortPath,
 	shortReadPath,
+	toolErrorParts,
+	writeParts,
 	type InspectKind,
 } from "./summaries.ts";
-import { colorDiff, emptyComponent, errorLine, headerLine, resultText, stack } from "./render.ts";
+import {
+	colorDiff,
+	emptyComponent,
+	errorRowComponent,
+	headerLine,
+	outputBlock,
+	resultText,
+	rowComponent,
+	stack,
+} from "./render.ts";
 import { createSpacing, type Spacing } from "./spacing.ts";
 
 type AnyDefinition = ToolDefinition<any, any, any>;
@@ -147,22 +157,27 @@ function runSeconds(
 type EditReplacement = { oldText?: unknown; newText?: unknown };
 
 /**
- * The path a row prints: a collapsed row shortens it (`src/a.ts`, `~/notes.md`), the expanded row
- * spells the same file out in full. Every row that prints a path goes through here.
+ * The path a row prints: a collapsed row shortens it (`src/a.ts`, `~/notes.md`), and an expanded
+ * row keeps the same shortening (it is the same file), only with a wider budget before the left
+ * end is elided. Every row that prints a path goes through here.
  */
 function rowPath(args: unknown, context: { cwd: string; expanded: boolean }, fallback = ""): string {
 	const value = (args as { path?: unknown } | undefined)?.path;
 	const path = typeof value === "string" && value ? value : fallback;
-	return context.expanded ? absolutePath(path, context.cwd) : shortPath(path, context.cwd);
+	return context.expanded ? longPath(path, context.cwd) : shortPath(path, context.cwd);
 }
 
-/** `◆ Edit src/a.ts  −3 +12` — or the bare path before the counts have streamed in. */
-function editHeader(path: string, args: unknown, marker: string = DIAMOND): string {
+/**
+ * The `edit` row: `◆ Edit src/a.ts` with `−3 +12` in the metric column, or the bare path before
+ * the counts have streamed in. The column is reserved either way, so the row does not grow a line
+ * when the first replacement lands.
+ */
+function editHeaderParts(path: string, args: unknown, marker: string = DIAMOND): RowParts {
 	const { oldLines, newLines } = editLineCounts(args);
 	if (oldLines === 0 && newLines === 0) {
-		return `${marker} Edit ${path}`;
+		return { title: `${marker} Edit ${path}`, metricReserve: COUNT_RESERVE };
 	}
-	return formatEditCounts(path, oldLines, newLines, marker);
+	return editParts(path, oldLines, newLines, marker);
 }
 
 /** The replacement pairs of an edit call, whether it streams `edits[]` or the legacy single pair. */
@@ -240,6 +255,11 @@ export function createQuietTools(cwd: string, burst: BurstTracker, live: LiveGly
 		ls: createLsToolDefinition(cwd),
 	};
 
+	/**
+	 * A `read`/`ls`/`grep`/`find` row. Collapsed, these rows do not draw themselves: the burst's
+	 * first successful call paints the one merged line for all of them (`burst.ts`), so the line
+	 * holds the position where the burst started and only its counts change as the rest land.
+	 */
 	const inspect = (
 		kind: InspectKind,
 		original: AnyDefinition,
@@ -255,6 +275,9 @@ export function createQuietTools(cwd: string, burst: BurstTracker, live: LiveGly
 				return emptyComponent();
 			},
 			renderResult(result, options, theme, context) {
+				// Keep the invalidator registered in `renderCall` fresh: the row that owns the merged
+				// line is repainted from a render well after the one that registered it.
+				burst.register(context.toolCallId, context.invalidate);
 				const marker = rowMarker(context);
 				if (context.isPartial) {
 					// Running, the row is its own one-line header; the output is the `Ctrl+O` detail, so
@@ -263,14 +286,16 @@ export function createQuietTools(cwd: string, burst: BurstTracker, live: LiveGly
 				}
 				if (context.isError) {
 					burst.complete(context.toolCallId, kind, true);
-					return errorLine(theme, formatToolError(kind, firstErrorLine(resultText(result))));
+					return errorRowComponent(theme, toolErrorParts(kind, firstErrorLine(resultText(result))));
 				}
 				burst.complete(context.toolCallId, kind, false, inspectDetail(kind, context.args, context.cwd));
 				if (options.expanded) {
 					const output = resultText(result);
-					return output ? new Text(theme.fg("toolOutput", output), 0, 0) : emptyComponent();
+					return output ? outputBlock(theme.fg("toolOutput", output)) : emptyComponent();
 				}
 				if (!burst.shouldPaintCollapsed(context.toolCallId, false)) {
+					// Not the burst's owner: the merged line is drawn further up, in the row that opened
+					// the burst. An empty row is what keeps the merge on one line.
 					return emptyComponent();
 				}
 				return headerLine(theme, burst.summaryFor(context.toolCallId));
@@ -292,26 +317,39 @@ export function createQuietTools(cwd: string, burst: BurstTracker, live: LiveGly
 			if (context.isError || context.expanded) {
 				return emptyComponent();
 			}
-			return headerLine(
-				theme,
-				context.isPartial ? formatRunLine(command, summary, seconds, marker) : formatRanLine(command, summary, seconds),
-			);
+			if (context.isPartial) {
+				// The row that opened the run of quick commands is repainted from here when a later
+				// one lands, so the merged line stays where it started.
+				burst.register(context.toolCallId, context.invalidate);
+				return rowComponent(theme, runParts(command, summary, seconds, marker));
+			}
+			// A settled run is either its own `Ran …` row or part of a merged line: the burst's
+			// first quick run owns that line, and the rest of the covered runs draw nothing.
+			if (!burst.shouldPaintRunCollapsed(context.toolCallId)) {
+				return emptyComponent();
+			}
+			return rowComponent(theme, burst.runMergeFor(context.toolCallId) ?? ranParts(command, summary, seconds));
 		},
 		renderResult(result, options, theme, context) {
 			const command = String(context.args?.command ?? "");
 			const output = resultText(result);
 			const seconds = runSeconds(context.state as RunClockState, context);
 			const marker = rowMarker(context);
+			if (!context.isPartial) {
+				// Settled: hand the run to the tracker, which decides whether it merges with the
+				// quick runs around it.
+				burst.completeRun(context.toolCallId, seconds ?? 0, context.isError === true, runSummary(context.args));
+			}
 			if (context.isError) {
-				return errorLine(theme, formatRunError(command, parseExitCode(output), runSummary(context.args)));
+				return errorRowComponent(theme, runErrorParts(command, parseExitCode(output), runSummary(context.args)));
 			}
 			if (options.expanded) {
 				const head = context.isPartial
-					? formatRunFull(command, seconds, marker)
-					: formatRanFull(command, seconds);
+					? runFullParts(command, seconds, marker)
+					: ranFullParts(command, seconds);
 				return stack(
-					headerLine(theme, head),
-					output ? new Text(theme.fg("toolOutput", output), 0, 0) : undefined,
+					rowComponent(theme, head),
+					output ? outputBlock(theme.fg("toolOutput", output)) : undefined,
 				);
 			}
 			// Collapsed, the header `renderCall` draws (with its live clock while running) is the
@@ -327,20 +365,20 @@ export function createQuietTools(cwd: string, burst: BurstTracker, live: LiveGly
 			if (context.isError) {
 				return emptyComponent();
 			}
-			return headerLine(theme, editHeader(rowPath(args, context), args, marker));
+			return rowComponent(theme, editHeaderParts(rowPath(args, context), args, marker));
 		},
 		renderResult(result, options, theme, context) {
 			// Settling the row also releases its live marker from the shared repaint ticker.
 			rowMarker(context);
 			if (context.isError) {
-				return errorLine(theme, formatToolError("edit", firstErrorLine(resultText(result))));
+				return errorRowComponent(theme, toolErrorParts("edit", firstErrorLine(resultText(result))));
 			}
 			// Collapsed, the call renderer's `−old +new` header is the whole row; the diff is the detail.
 			if (!options.expanded) {
 				return emptyComponent();
 			}
 			const diff = String((result.details as { diff?: string } | undefined)?.diff ?? "");
-			return diff ? new Text(colorDiff(theme, diff), 0, 0) : emptyComponent();
+			return diff ? outputBlock(colorDiff(theme, diff)) : emptyComponent();
 		},
 	});
 
@@ -371,15 +409,15 @@ export function createQuietTools(cwd: string, burst: BurstTracker, live: LiveGly
 			const path = rowPath(args, context);
 			const lines = streamedLineCount(context.state, typeof args?.content === "string" ? args.content : "");
 			if (lines === 0) {
-				return headerLine(theme, `${marker} Write ${path}`);
+				return rowComponent(theme, { title: `${marker} Write ${path}`, metricReserve: COUNT_RESERVE });
 			}
-			return headerLine(theme, formatWriteLines(path, lines, marker));
+			return rowComponent(theme, writeParts(path, lines, marker));
 		},
 		renderResult(result, options, theme, context) {
 			// Settling the row also releases its live marker from the shared repaint ticker.
 			rowMarker(context);
 			if (context.isError) {
-				return errorLine(theme, formatToolError("write", firstErrorLine(resultText(result))));
+				return errorRowComponent(theme, toolErrorParts("write", firstErrorLine(resultText(result))));
 			}
 			// Collapsed, the call renderer's line-count header is the whole row; the diff is the detail.
 			if (!options.expanded) {
@@ -387,7 +425,7 @@ export function createQuietTools(cwd: string, burst: BurstTracker, live: LiveGly
 			}
 			const details = result.details as { diff?: string } | undefined;
 			const diff = details?.diff ?? additionsDiff(String(context.args?.content ?? ""));
-			return diff ? new Text(colorDiff(theme, diff), 0, 0) : emptyComponent();
+			return diff ? outputBlock(colorDiff(theme, diff)) : emptyComponent();
 		},
 	});
 
@@ -430,7 +468,11 @@ export function registerQuietTools(
 				// A tool row is the first agent block of a turn to render; this is where the
 				// transcript patch gets installed.
 				spacing.sweep();
-				if (isBurstSplitTool(tool.name)) {
+				if (tool.name === "bash") {
+					// A bash row ends an inspect burst but not a run of quick commands: consecutive
+					// quick runs are what the merged run line is for.
+					burst.noteInspectSplit();
+				} else if (isBurstSplitTool(tool.name)) {
 					burst.noteSplit();
 				}
 				const current = toolsFor(context.cwd).find((item) => item.name === tool.name) ?? tool;
@@ -445,7 +487,9 @@ export function registerQuietTools(
 	}
 
 	pi.on("tool_execution_start", async (event) => {
-		if (isBurstSplitTool(event.toolName)) {
+		if (event.toolName === "bash") {
+			burst.noteInspectSplit();
+		} else if (isBurstSplitTool(event.toolName)) {
 			burst.noteSplit();
 		}
 	});

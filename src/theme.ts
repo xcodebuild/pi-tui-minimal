@@ -40,6 +40,10 @@ const FILL = new Set<string>(FILL_BG_SLOTS);
  * still returns the instance's method. The overrides therefore have to live on a real `Theme`
  * instance installed with `setTheme`. `Object.create` keeps the prototype (which is what pi's
  * `instanceof Theme` check accepts) and every piece of theme state is a plain own property.
+ *
+ * That clone does not last. `/new`, `/resume`, `/fork`, and `/reload` run this patch from
+ * `session_start`, then call `applyFromSettings()`, which loads the theme by name and discards the
+ * clone. `patchThemePrototype` is what keeps the bands off after that replacement.
  */
 export function cloneQuietTheme<T extends ThemeLike>(live: T): T {
 	const clone = Object.create(Object.getPrototypeOf(live)) as T;
@@ -87,9 +91,46 @@ export function loadQuietThemeJson(): {
 	return JSON.parse(readFileSync(path, "utf8"));
 }
 
+/** Set on `Theme.prototype` once, so a later `setTheme(name)` cannot bring the bands back. */
+const PROTOTYPE_PATCHED = Symbol.for("pi-tui-minimal.quiet-theme");
+
+type ThemePrototype = ThemeLike & { [PROTOTYPE_PATCHED]?: true };
+
+/**
+ * Strip fill backgrounds (and remap thinking text) on the theme class itself.
+ *
+ * pi's `bg` / `fg` live on `Theme.prototype`, and every theme `setTheme(name)` constructs shares
+ * that prototype. Patching the instance we just cloned would be wiped by the next
+ * `applyFromSettings()`; patching the prototype is not. Instance methods that are own properties
+ * (not pi's `Theme`) are left alone.
+ */
+function patchThemePrototype(theme: object): void {
+	const proto = Object.getPrototypeOf(theme) as ThemePrototype | null;
+	if (!proto || proto[PROTOTYPE_PATCHED] || typeof proto.bg !== "function") {
+		return;
+	}
+	const originalBg = proto.bg;
+	const originalFg = typeof proto.fg === "function" ? proto.fg : undefined;
+	proto.bg = function quietBg(this: ThemeLike, color: string, text: string): string {
+		return FILL.has(color) ? text : originalBg.call(this, color, text);
+	};
+	if (originalFg) {
+		proto.fg = function quietFg(this: ThemeLike, color: string, text: string): string {
+			return color === THINKING_FG_SLOT
+				? originalFg.call(this, THINKING_DIM_SLOT, text)
+				: originalFg.call(this, color, text);
+		};
+	}
+	proto[PROTOTYPE_PATCHED] = true;
+}
+
 export function applyThemePatch(ui: ThemeUi): void {
 	const live = resolveActiveTheme(ui);
 	const theme = live ? cloneQuietTheme(live) : ui.getTheme("quiet");
+	const prototypeSource = live ?? theme;
+	if (prototypeSource && typeof prototypeSource === "object") {
+		patchThemePrototype(prototypeSource);
+	}
 	if (theme && installTheme(ui, theme as unknown as Theme)) {
 		return;
 	}

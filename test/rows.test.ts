@@ -3,16 +3,13 @@ import { ToolExecutionComponent, initTheme } from "@earendil-works/pi-coding-age
 import { Container } from "@earendil-works/pi-tui";
 import { expect } from "./expect.ts";
 import { fakeTheme, LIVE, markerTheme } from "./fake-theme.ts";
-import {
-	FFF_TOOL_NAMES,
-	QUIET_TOOL_NAMES,
-	foreignToolRowLines,
-	isToolRow,
-	oneLine,
-	toolRowTitle,
-} from "../src/rows.ts";
+import { FFF_TOOL_NAMES, QUIET_TOOL_NAMES, foreignToolRow, isToolRow, oneLine, toolRowTitle } from "../src/rows.ts";
+import { layoutQuietRow } from "../src/render.ts";
 import { ASK_USER_QUESTION } from "../src/questionnaire.ts";
 import { createSpacing, visibleText } from "../src/spacing.ts";
+
+/** The settled marker, spelled out so the helpers read clearly. */
+const DIAMOND_FOR_TESTS = "◆";
 
 /** A stand-in for pi's `ToolExecutionComponent`: the fields the substitution reads. */
 function fakeRow(overrides: Record<string, unknown> = {}) {
@@ -28,14 +25,32 @@ function fakeRow(overrides: Record<string, unknown> = {}) {
 	};
 }
 
-/** Plain row text (identity theme). */
-function plain(component: unknown): string[] | undefined {
-	return foreignToolRowLines(component as never, fakeTheme)?.map((line) => line.trimEnd());
+/**
+ * A substituted row, laid out the way the transcript patch lays it out, then with the gutter
+ * stripped: these tests are about what a row *says*. The gutter and the metric column are
+ * asserted in `layout.test.ts`, and the substitution itself in `spacing.test.ts`.
+ */
+function plain(component: unknown, liveMarker = DIAMOND_FOR_TESTS): string[] | undefined {
+	const row = foreignToolRow(component as never, fakeTheme, liveMarker);
+	if (!row) {
+		return undefined;
+	}
+	// Strip the gutter and collapse the metric column's padding: the column's alignment is
+	// asserted once, in `layout.test.ts`.
+	return layoutQuietRow(fakeTheme, row, 200).map((line) =>
+		visibleText(line).trimEnd().replace(/^ {2}/, "").replace(/ {2,}/g, " "),
+	);
 }
 
 /** The same, with the live glyph a running row would wear. */
 function plainLive(component: unknown): string[] | undefined {
-	return foreignToolRowLines(component as never, fakeTheme, LIVE)?.map((line) => line.trimEnd());
+	return plain(component, LIVE);
+}
+
+/** The styled lines of a row, for the emphasis assertions (gutter included). */
+function styledLines(component: unknown, theme: unknown, liveMarker = DIAMOND_FOR_TESTS): string[] | undefined {
+	const row = foreignToolRow(component as never, theme as never, liveMarker);
+	return row && layoutQuietRow(theme as never, row, 200);
 }
 
 const DONE = { content: [{ type: "text", text: "src/composer.ts\n 12: useEffect(() => {" }] };
@@ -90,17 +105,15 @@ describe("foreign tool row lines", () => {
 		expect(isToolRow(fakeRow())).toBe(true);
 		expect(isToolRow({ toolName: "ffgrep" })).toBe(false);
 		expect(isToolRow(undefined)).toBe(false);
-		expect(foreignToolRowLines(undefined, fakeTheme)).toBeUndefined();
-		expect(foreignToolRowLines({ toolName: "ffgrep" } as never, fakeTheme)).toBeUndefined();
+		expect(foreignToolRow(undefined, fakeTheme)).toBeUndefined();
+		expect(foreignToolRow({ toolName: "ffgrep" } as never, fakeTheme)).toBeUndefined();
 	});
 
 	it("leaves this extension's own rows and the questionnaire alone", () => {
 		for (const name of QUIET_TOOL_NAMES) {
-			expect(foreignToolRowLines(fakeRow({ toolName: name, result: DONE, isPartial: false }), fakeTheme)).toBeUndefined();
+			expect(foreignToolRow(fakeRow({ toolName: name, result: DONE, isPartial: false }), fakeTheme)).toBeUndefined();
 		}
-		expect(
-			foreignToolRowLines(fakeRow({ toolName: ASK_USER_QUESTION, result: DONE, isPartial: false }), fakeTheme),
-		).toBeUndefined();
+		expect(foreignToolRow(fakeRow({ toolName: ASK_USER_QUESTION, result: DONE, isPartial: false }), fakeTheme)).toBeUndefined();
 	});
 
 	it("collapses a settled FFF row to one diamond line", () => {
@@ -112,11 +125,11 @@ describe("foreign tool row lines", () => {
 		// No output block while it runs: the row cannot change height between running and settled.
 		expect(plain(row)).toEqual(["◆ ffgrep /useEffect/ in src"]);
 		expect(plain(fakeRow())).toEqual(["◆ ffgrep /useEffect/ in src"]);
-		// Passed the live glyph, the running row wears it — bold in the warning slot.
+		// Passed the live glyph, the running row wears it — bold in the accent slot.
 		expect(plainLive(fakeRow())).toEqual([`${LIVE} ffgrep /useEffect/ in src`]);
 		expect(plainLive(row)).toEqual([`${LIVE} ffgrep /useEffect/ in src`]);
-		const [glyph] = foreignToolRowLines(fakeRow(), markerTheme, LIVE)!;
-		expect(glyph).toContain(`<b>[warning]${LIVE}[/]</b>`);
+		const [glyph] = styledLines(fakeRow(), markerTheme, LIVE)!;
+		expect(glyph).toContain(`<b>[accent]${LIVE}[/]</b>`);
 		// A settled row has nothing to spin, so it keeps `◆` whatever the caller passes.
 		expect(plainLive(fakeRow({ result: DONE, isPartial: false }))).toEqual(["◆ ffgrep /useEffect/ in src"]);
 	});
@@ -126,10 +139,10 @@ describe("foreign tool row lines", () => {
 			result: { content: [{ type: "text", text: "Operation aborted\nat …" }], isError: true },
 			isPartial: false,
 		});
-		const [line] = foreignToolRowLines(row, markerTheme)!;
+		const [line] = styledLines(row, markerTheme)!;
 		expect(line).toContain("[error]");
 		expect(line).toContain("<b>ffgrep</b>");
-		expect(plain(row)).toEqual(["◆ ffgrep /useEffect/ in src  Operation aborted"]);
+		expect(plain(row)).toEqual(["× ffgrep /useEffect/ in src Operation aborted"]);
 	});
 
 	it("shows the full output when expanded", () => {
@@ -144,16 +157,14 @@ describe("foreign tool row lines", () => {
 	});
 
 	it("bolds the tool name and the argument, like an inspect row", () => {
-		const [line] = foreignToolRowLines(fakeRow({ result: DONE, isPartial: false }), markerTheme)!;
+		const [line] = styledLines(fakeRow({ result: DONE, isPartial: false }), markerTheme)!;
 		expect(line).toContain("<b>[accent]◆[/]</b>");
 		expect(line).toContain("[accent]ffgrep[/]");
 		expect(line).toContain("<b> /useEffect/ in src</b>");
 	});
 
 	it("leaves a running tool it does not know to its own renderer", () => {
-		expect(
-			foreignToolRowLines(fakeRow({ toolName: "Agent", args: { description: "Review" } }), fakeTheme),
-		).toBeUndefined();
+		expect(foreignToolRow(fakeRow({ toolName: "Agent", args: { description: "Review" } }), fakeTheme)).toBeUndefined();
 		// …and collapses it once it settles.
 		const settled = fakeRow({ toolName: "Agent", args: { description: "Review" }, result: DONE, isPartial: false });
 		expect(plain(settled)).toEqual(["◆ Agent Review"]);
@@ -162,10 +173,8 @@ describe("foreign tool row lines", () => {
 
 	it("leaves a row that carries images alone", () => {
 		const row = fakeRow({ toolName: "screenshot", result: DONE, isPartial: false });
-		expect(foreignToolRowLines({ ...row, imageComponents: [{}] }, fakeTheme)).toBeUndefined();
-		expect(
-			foreignToolRowLines({ ...row, result: { content: [{ type: "image", data: "…" }] } }, fakeTheme),
-		).toBeUndefined();
+		expect(foreignToolRow({ ...row, imageComponents: [{}] }, fakeTheme)).toBeUndefined();
+		expect(foreignToolRow({ ...row, result: { content: [{ type: "image", data: "…" }] } }, fakeTheme)).toBeUndefined();
 	});
 });
 
@@ -205,13 +214,14 @@ describe("foreign tool row in the transcript", () => {
 
 		row.updateResult({ content: [{ type: "text", text: "src/composer.ts\n 12: useEffect(() => {" }] } as never, false);
 		const lines = container.render(80).map((line) => visibleText(line));
-		expect(lines).toEqual(["◆ ffgrep /useEffect/ in src"]);
+		// The substituted row wears the same two-column gutter as this extension's own rows.
+		expect(lines).toEqual(["  ◆ ffgrep /useEffect/ in src"]);
 
 		row.setExpanded(true);
 		expect(container.render(80).map((line) => visibleText(line))).toEqual([
-			"◆ ffgrep /useEffect/ in src",
-			"src/composer.ts",
-			" 12: useEffect(() => {",
+			"  ◆ ffgrep /useEffect/ in src",
+			"  src/composer.ts",
+			"   12: useEffect(() => {",
 		]);
 	});
 
@@ -226,9 +236,9 @@ describe("foreign tool row in the transcript", () => {
 
 		// Running, the row is its header: no output block, so its height cannot change, and the
 		// header wears the live glyph the spacing patch passed in.
-		expect(container.render(80).map((line) => visibleText(line))).toEqual([`${LIVE} ffgrep /padding/ in .`]);
+		expect(container.render(80).map((line) => visibleText(line))).toEqual([`  ${LIVE} ffgrep /padding/ in .`]);
 		row.updateResult({ content: [{ type: "text", text: "1\n2\n3\n4\n5\n6" }] } as never, true);
-		expect(container.render(80).map((line) => visibleText(line))).toEqual([`${LIVE} ffgrep /padding/ in .`]);
+		expect(container.render(80).map((line) => visibleText(line))).toEqual([`  ${LIVE} ffgrep /padding/ in .`]);
 	});
 
 	it("keeps every FFF tool name in the set the title formatter knows", () => {

@@ -46,7 +46,7 @@ function shortPattern(value: string): string {
 	return truncate(collapse(value), MAX_PATTERN);
 }
 
-/** Join up to two names, then count the rest: `a, b +2`. */
+/** Join up to two names, then count the rest: `a, b +2 more`. */
 function nameList(values: string[]): string {
 	const unique = [...new Set(values.filter(Boolean))];
 	if (unique.length === 0) {
@@ -55,7 +55,7 @@ function nameList(values: string[]): string {
 	if (unique.length <= 2) {
 		return unique.join(", ");
 	}
-	return `${unique.slice(0, 2).join(", ")} +${unique.length - 2}`;
+	return `${unique.slice(0, 2).join(", ")} +${unique.length - 2} more`;
 }
 
 /** Split on top-level `;`, `&&`, `||`, newline and single `&`, respecting quotes. */

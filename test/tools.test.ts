@@ -31,6 +31,19 @@ function paintLine(component: { render: (width: number) => string[] }): string {
 	return (component.render(200)[0] ?? "").trim();
 }
 
+/**
+ * A row's header with the metric column's padding collapsed to one space, which is what the
+ * alignment spends: `◆ Ran git status 2.4s`. The column itself is asserted in `layout.test.ts`.
+ */
+function rowLine(component: { render: (width: number) => string[] }, width = 100): string {
+	return (component.render(width)[0] ?? "").trim().replace(/ {2,}/g, " ");
+}
+
+/** A running row that has been going for 2.4 seconds, for the clock assertions. */
+function running(): Record<string, unknown> {
+	return { state: { startedAt: Date.now() - 2400 } };
+}
+
 describe("quiet tool renderers", () => {
 	it("collapses bash to a Run line and keeps two bash calls on two lines", () => {
 		const tools = quietTools(process.cwd(), new BurstTracker());
@@ -43,12 +56,18 @@ describe("quiet tool renderers", () => {
 		);
 		expect(a).toContain("git status");
 		expect(b).toContain("Listed .");
-		expect(a).toMatch(new RegExp(`^${LIVE} Run git status for \\d+\\.\\d+s$`));
+		// A run that has only just started carries no clock: `0.0s` is nine columns spent on nothing.
+		expect(a).toBe(`${LIVE} Run git status`);
 		expect(a).not.toBe(b);
-		const settled = paintLine(
-			bash.renderCall!({ command: "git status" }, fakeTheme, renderContext({ toolCallId: "b1" })),
+		// Once it has been going for a while, the clock appears in the metric column.
+		const steady = rowLine(
+			bash.renderCall!({ command: "git status" }, fakeTheme, renderContext({ toolCallId: "b1", isPartial: true, ...running() })),
 		);
-		expect(settled).toMatch(/^◆ Ran git status for \d+\.\d+s$/);
+		expect(steady).toBe(`${LIVE} Run git status 2.4s`);
+		const settled = rowLine(
+			bash.renderCall!({ command: "git status" }, fakeTheme, renderContext({ toolCallId: "b1", ...running() })),
+		);
+		expect(settled).toBe("◆ Ran git status 2.4s");
 		const done = paint(
 			bash.renderResult!(
 				{ content: [{ type: "text", text: "ok" }], details: {} },
@@ -110,8 +129,9 @@ describe("quiet tool renderers", () => {
 			)
 			.render(80)
 			.map((line) => line.trimEnd());
-		// Not a window onto the tail: the expanded view is everything the command has printed.
-		expect(lines).toEqual([`${LIVE} Run npm test for 0.0s`, "1", "2", "3", "4", "5", "6"]);
+		// Not a window onto the tail: the expanded view is everything the command has printed, and
+		// the whole block (header and output) sits one gutter in from the assistants prose.
+		expect(lines).toEqual([`  ${LIVE} Run npm test`, "  1", "  2", "  3", "  4", "  5", "  6"]);
 	});
 
 	it("prefers the model-supplied description over the heuristic summary", () => {
@@ -161,10 +181,10 @@ describe("quiet tool renderers", () => {
 		const write = tools.find((tool) => tool.name === "write")!;
 		const state: Record<string, unknown> = {};
 		const growing = (content: string) =>
-			paintLine(write.renderCall!({ path: "src/a.ts", content }, fakeTheme, renderContext({ isPartial: true, state })));
-		expect(growing("a\nb")).toBe(`${LIVE} Write src/a.ts  2 lines`);
-		expect(growing("a\nb\nc")).toBe(`${LIVE} Write src/a.ts  3 lines`);
-		expect(growing("a\nb\nc\n")).toBe(`${LIVE} Write src/a.ts  3 lines`);
+			rowLine(write.renderCall!({ path: "src/a.ts", content }, fakeTheme, renderContext({ isPartial: true, state })));
+		expect(growing("a\nb")).toBe(`${LIVE} Write src/a.ts 2 lines`);
+		expect(growing("a\nb\nc")).toBe(`${LIVE} Write src/a.ts 3 lines`);
+		expect(growing("a\nb\nc\n")).toBe(`${LIVE} Write src/a.ts 3 lines`);
 		expect(
 			paintLine(write.renderCall!({ path: "src/a.ts", content: "" }, fakeTheme, renderContext({ isPartial: true }))),
 		).toBe(`${LIVE} Write src/a.ts`);
@@ -174,15 +194,15 @@ describe("quiet tool renderers", () => {
 		const tools = quietTools(process.cwd(), new BurstTracker());
 		const edit = tools.find((tool) => tool.name === "edit")!;
 		const row = (edits: unknown) =>
-			paintLine(edit.renderCall!({ path: "src/a.ts", edits }, fakeTheme, renderContext({ isPartial: true })));
-		expect(row([{ oldText: "a\nb", newText: "a\nb\nc\nd\n" }])).toBe(`${LIVE} Edit src/a.ts  −2 +4`);
+			rowLine(edit.renderCall!({ path: "src/a.ts", edits }, fakeTheme, renderContext({ isPartial: true })));
+		expect(row([{ oldText: "a\nb", newText: "a\nb\nc\nd\n" }])).toBe(`${LIVE} Edit src/a.ts −2 +4`);
 		expect(
 			row([
 				{ oldText: "a", newText: "b" },
 				{ oldText: "x\ny", newText: "z" },
 			]),
-		).toBe(`${LIVE} Edit src/a.ts  −3 +2`);
-		expect(row([{ oldText: "bye", newText: "hello" }])).toBe(`${LIVE} Edit src/a.ts  −1 +1`);
+		).toBe(`${LIVE} Edit src/a.ts −3 +2`);
+		expect(row([{ oldText: "bye", newText: "hello" }])).toBe(`${LIVE} Edit src/a.ts −1 +1`);
 		expect(row([])).toBe(`${LIVE} Edit src/a.ts`);
 	});
 
@@ -199,7 +219,7 @@ describe("quiet tool renderers", () => {
 			),
 		].join("\n");
 		expect(settled.match(/◆/g)?.length).toBe(1);
-		expect(settled).toContain("◆ Write src/a.ts  2 lines");
+		expect(settled).toMatch(/◆ Write src\/a\.ts +2 lines/);
 		const expanded = paintLine(
 			edit.renderResult!(
 				result,
@@ -210,8 +230,9 @@ describe("quiet tool renderers", () => {
 		);
 		expect(expanded).toBe("+1 a");
 		expect(paintLine(edit.renderResult!(result, { expanded: false, isPartial: false }, fakeTheme, renderContext({ args, isPartial: false })))).toBe("");
-		expect(paintLine(edit.renderCall!(args, fakeTheme, renderContext({ expanded: true, isPartial: false })))).toBe(
-			`◆ Edit ${join(process.cwd(), "src/a.ts")}`,
+		// An expanded row keeps the same relative path a collapsed one prints.
+		expect(rowLine(edit.renderCall!(args, fakeTheme, renderContext({ expanded: true, isPartial: false })))).toBe(
+			"◆ Edit src/a.ts",
 		);
 	});
 
@@ -226,15 +247,15 @@ describe("quiet tool renderers", () => {
 			edits: [{ oldText: "bye", newText: "hello" }],
 		};
 		const row = (tool: (typeof tools)[number], expanded: boolean) =>
-			paintLine(tool.renderCall!(args, fakeTheme, renderContext({ args, cwd: "/repo", expanded })));
+			rowLine(tool.renderCall!(args, fakeTheme, renderContext({ args, cwd: "/repo", expanded })));
 
-		expect(row(write, false)).toBe("◆ Write src/a.ts  2 lines");
-		expect(row(write, true)).toBe("◆ Write /repo/src/a.ts  2 lines");
-		expect(row(edit, false)).toBe("◆ Edit src/a.ts  −1 +1");
-		expect(row(edit, true)).toBe("◆ Edit /repo/src/a.ts  −1 +1");
+		expect(row(write, false)).toBe("◆ Write src/a.ts 2 lines");
+		expect(row(write, true)).toBe("◆ Write src/a.ts 2 lines");
+		expect(row(edit, false)).toBe("◆ Edit src/a.ts −1 +1");
+		expect(row(edit, true)).toBe("◆ Edit src/a.ts −1 +1");
 		// A collapsed read is the burst's merged line, so its own call row draws nothing.
 		expect(row(read, false)).toBe("");
-		expect(row(read, true)).toBe("◆ read /repo/src/a.ts");
+		expect(row(read, true)).toBe("◆ read src/a.ts");
 		expect(
 			paint(
 				read.renderResult!(
@@ -280,7 +301,17 @@ describe("quiet tool renderers", () => {
 			);
 		}
 
-		expect(paint(read.renderResult!(result, { expanded: false, isPartial: false }, fakeTheme, renderContext({ toolCallId: "r0", args: { path: "f0" } })))).toBe("");
+		// The burst's own line stays on `r0`, the read that opened it, however much lands after.
+		expect(
+			paint(
+				read.renderResult!(
+					result,
+					{ expanded: false, isPartial: false },
+					fakeTheme,
+					renderContext({ toolCallId: "r0", args: { path: "f0" } }),
+				),
+			),
+		).toContain("Read f0, f1 +44 more, Listed 3 dirs, Searched 15 patterns");
 		expect(
 			paint(
 				grep.renderResult!(
@@ -290,7 +321,7 @@ describe("quiet tool renderers", () => {
 					renderContext({ toolCallId: "g14", args: { pattern: "x" } }),
 				),
 			),
-		).toContain("Read f0, f1 +44, Listed 3 dirs, Searched 15 patterns");
+		).toBe("");
 		expect(
 			paint(
 				read.renderResult!(
@@ -301,6 +332,30 @@ describe("quiet tool renderers", () => {
 				),
 			),
 		).toContain("file body");
+	});
+
+	it("repaints the row that opened the burst when a later inspect call lands", () => {
+		const burst = new BurstTracker();
+		const tools = quietTools(process.cwd(), burst);
+		const read = tools.find((tool) => tool.name === "read")!;
+		const result = { content: [{ type: "text", text: "ok" }], details: {} };
+		const repainted: string[] = [];
+		// The transcript hands every render a fresh invalidate; the burst repaints the row that holds
+		// the merged line through whichever one that row registered last.
+		const context = (toolCallId: string) =>
+			renderContext({
+				toolCallId,
+				args: { path: `${toolCallId}.ts` },
+				invalidate: () => repainted.push(toolCallId),
+			});
+		const settle = (toolCallId: string) =>
+			read.renderResult!(result, { expanded: false, isPartial: false }, fakeTheme, context(toolCallId));
+
+		expect(paint(settle("q0"))).toContain("Read q0.ts");
+		expect(paint(settle("q1"))).toBe("");
+		// `q0` opened the burst, so it is the row that had to be repainted — not `q1`, the row that
+		// just landed, which draws nothing at all.
+		expect(repainted).toEqual(["q0"]);
 	});
 
 	it("gives a running inspect row the live glyph, collapsed and expanded", () => {
@@ -326,7 +381,7 @@ describe("quiet tool renderers", () => {
 					renderContext({ toolCallId: "i2", args: { path: "." }, isPartial: true, expanded: true }),
 				),
 			),
-		).toBe(`${LIVE} ls ${process.cwd()}`);
+		).toBe(`${LIVE} ls .`);
 	});
 
 	it("splits inspect tools across bash", () => {
@@ -398,10 +453,10 @@ describe("quiet tool metadata and execute", () => {
 		expect((result.details as any).created).toBe(false);
 		expect(String((result.details as any).diff)).toContain("-");
 		expect(String((result.details as any).diff)).toContain("+");
-		const header = paintLine(
-			write.renderCall!({ path, content: "aaa\nccc\n" }, fakeTheme, renderContext({ isPartial: false })),
+		const header = rowLine(
+			write.renderCall!({ path, content: "aaa\nccc\n" }, fakeTheme, renderContext({ cwd: dir, isPartial: false })),
 		);
-		expect(header).toBe(`◆ Write ${path}  2 lines`);
+		expect(header).toBe("◆ Write old.txt 2 lines");
 		const body = paint(
 			write.renderResult!(
 				result,
@@ -429,14 +484,14 @@ describe("quiet tool metadata and execute", () => {
 		const tools = quietTools(process.cwd(), new BurstTracker());
 		const edit = tools.find((tool) => tool.name === "edit")!;
 		const diff = "+1 hello\n-2 bye";
-		const header = paintLine(
+		const header = rowLine(
 			edit.renderCall!(
 				{ path: "src/a.ts", edits: [{ oldText: "bye", newText: "hello" }] },
 				fakeTheme,
 				renderContext({ isPartial: false }),
 			),
 		);
-		expect(header).toBe("◆ Edit src/a.ts  −1 +1");
+		expect(header).toBe("◆ Edit src/a.ts −1 +1");
 		const collapsed = paint(
 			edit.renderResult!(
 				{ content: [{ type: "text", text: "ok" }], details: { diff } },
@@ -456,16 +511,17 @@ describe("quiet tool metadata and execute", () => {
 		);
 		expect(expanded).toContain("hello");
 		expect(expanded).not.toMatch(/edit/);
-		// The header stays the call renderer's; expanded only adds the diff body — and spells the path out.
+		// The header stays the call renderer's; expanded only adds the diff body, and keeps the
+		// same relative path (a full absolute path spends the row on directories already known).
 		expect(
-			paintLine(
+			rowLine(
 				edit.renderCall!(
 					{ path: "src/a.ts", edits: [{ oldText: "bye", newText: "hello" }] },
 					fakeTheme,
 					renderContext({ expanded: true, isPartial: false }),
 				),
 			),
-		).toBe(`◆ Edit ${join(process.cwd(), "src/a.ts")}  −1 +1`);
+		).toBe("◆ Edit src/a.ts −1 +1");
 		const err = paint(
 			edit.renderResult!(
 				{ content: [{ type: "text", text: "Error: missing" }], details: {} },
@@ -489,9 +545,10 @@ describe("quiet tool emphasis", () => {
 		const tools = quietTools(process.cwd(), new BurstTracker());
 		const bash = tools.find((tool) => tool.name === "bash")!;
 		const row = paint(bash.renderCall!({ command: "git status" }, markerTheme, renderContext({ toolCallId: "e1", isPartial: true, executionStarted: false })));
-		// A running row's marker is the live glyph, bold in the warning slot rather than accent.
-		expect(row).toContain(`<b>[warning]${LIVE}[/]</b> <b>[accent]Run[/]</b>`);
-		expect(row).toContain("[dim] git status[/]");
+		// A running row's marker is the live glyph, bold in the accent slot like the settled `◆`.
+		expect(row).toContain(`<b>[accent]${LIVE}[/]</b> <b>[accent]Run[/]</b>`);
+		// Running, the row's own text is the brighter `text` slot rather than the settled dim.
+		expect(row).toContain("[text] git status[/]");
 		expect(row.includes("◆")).toBe(false);
 	});
 
@@ -505,14 +562,15 @@ describe("quiet tool emphasis", () => {
 		expect(settled.includes(LIVE)).toBe(false);
 	});
 
-	it("keeps the live clock in the running row's dim text", () => {
+	it("keeps the live clock in the row's dim metric column, never bold", () => {
 		const tools = quietTools(process.cwd(), new BurstTracker());
 		const bash = tools.find((tool) => tool.name === "bash")!;
 		const row = paintLine(
-			bash.renderCall!({ command: "git status" }, markerTheme, renderContext({ toolCallId: "e2", isPartial: true })),
+			bash.renderCall!({ command: "git status" }, markerTheme, renderContext({ toolCallId: "e2", isPartial: true, ...running() })),
 		);
-		expect(row).toContain("[dim] git status for ");
-		expect(row.includes("<b>0.0s")).toBe(false);
+		expect(row).toContain("[text] git status[/]");
+		expect(row).toMatch(/\[dim\]2\.4s\[\/\]$/);
+		expect(row.includes("<b>2.4s")).toBe(false);
 	});
 
 	it("bolds the counts of a merged inspect row", () => {
@@ -533,7 +591,7 @@ describe("quiet tool emphasis", () => {
 				result,
 				{ expanded: false, isPartial: false },
 				markerTheme,
-				renderContext({ toolCallId: "e-l2", args: { path: "." } }),
+				renderContext({ toolCallId: "e-l0", args: { path: "." } }),
 			),
 		);
 		expect(row).toContain("<b>[accent]Listed[/]</b> <b>3</b> [dim]dirs[/]");
@@ -550,5 +608,168 @@ describe("quiet tool emphasis", () => {
 			),
 		);
 		expect(row).toContain("[toolDiffRemoved]<b>−1</b>[/][dim] [/][toolDiffAdded]<b>+1</b>[/]");
+	});
+});
+
+/**
+ * The layout contract: a two-column gutter that separates machinery from prose, a metric column
+ * that lines the measurements up, and a height that does not move while a row is still running.
+ */
+describe("quiet row layout", () => {
+	it("indents a header and its expanded output by the same gutter", () => {
+		const tools = quietTools(process.cwd(), new BurstTracker());
+		const bash = tools.find((tool) => tool.name === "bash")!;
+		const rows = bash
+			.renderResult!(
+				{ content: [{ type: "text", text: "one\ntwo" }], details: {} },
+				{ expanded: true, isPartial: false },
+				fakeTheme,
+				renderContext({ args: { command: "git status" }, expanded: true }),
+			)
+			.render(80);
+		expect(rows[0]?.startsWith("  ◆ Ran git status")).toBe(true);
+		expect(rows[1]?.startsWith("  one")).toBe(true);
+		expect(rows[2]?.startsWith("  two")).toBe(true);
+	});
+
+	it("keeps a running row and its settled view the same height", () => {
+		const tools = quietTools(process.cwd(), new BurstTracker());
+		const bash = tools.find((tool) => tool.name === "bash")!;
+		const args = { command: "git status" };
+		const runningRows = bash
+			.renderCall!(args, fakeTheme, renderContext({ toolCallId: "h1", isPartial: true, ...running() }))
+			.render(80);
+		const settledRows = bash
+			.renderCall!(args, fakeTheme, renderContext({ toolCallId: "h1", ...running() }))
+			.render(80);
+		expect(runningRows.length).toBe(settledRows.length);
+	});
+
+	it("does not grow a line when a streamed count arrives or climbs", () => {
+		const tools = quietTools(process.cwd(), new BurstTracker());
+		const write = tools.find((tool) => tool.name === "write")!;
+		const state: Record<string, unknown> = {};
+		const height = (content: string) =>
+			write
+				.renderCall!({ path: "src/a.ts", content }, fakeTheme, renderContext({ isPartial: true, state }))
+				.render(80).length;
+		const first = height("");
+		expect(height("a\nb")).toBe(first);
+		expect(height("a\nb\nc\nd\ne")).toBe(first);
+		expect(height("a\n".repeat(400))).toBe(first);
+	});
+
+	it("puts the exit code of a failed run in the metric column, behind a `×`", () => {
+		const tools = quietTools(process.cwd(), new BurstTracker());
+		const bash = tools.find((tool) => tool.name === "bash")!;
+		const row = paintLine(
+			bash.renderResult!(
+				{ content: [{ type: "text", text: "Command exited with code 2" }], details: {} },
+				{ expanded: false, isPartial: false },
+				markerTheme,
+				renderContext({ args: { command: "false" }, isError: true }),
+			),
+		);
+		// The whole line keeps the error colour, and the status is bold and right-aligned.
+		expect(row).toContain("[error]");
+		expect(row).toContain("<b>×</b>");
+		expect(row).toContain("<b>Run</b>");
+		expect(row).toContain("<b>[error]exit 2[/]</b>");
+		expect(row.trimEnd().endsWith("<b>[error]exit 2[/]</b>")).toBe(true);
+	});
+});
+
+/**
+ * A run of quick commands is what makes the recording's ladder of `◆ Ran X for 0.1s` lines: the
+ * three of them collapse to one, while a command that took real time keeps its own row.
+ */
+describe("quiet run merging", () => {
+	/** A `bash` row that has been running for 400ms — under the merge threshold, three times over a second. */
+	function quickState(): Record<string, unknown> {
+		return { startedAt: Date.now() - 400 };
+	}
+	function settle(bash: any, toolCallId: string, description: string, state: Record<string, unknown>) {
+		const args = { command: `run ${toolCallId}`, description };
+		bash.renderCall!(args, fakeTheme, renderContext({ toolCallId, isPartial: true, state }));
+		bash.renderResult!(
+			{ content: [{ type: "text", text: "ok" }], details: {} },
+			{ expanded: false, isPartial: false },
+			fakeTheme,
+			renderContext({ toolCallId, args, state }),
+		);
+	}
+
+	it("merges consecutive quick runs into one line and unmerges when expanded", () => {
+		const burst = new BurstTracker();
+		const tools = quietTools(process.cwd(), burst);
+		const bash = tools.find((tool) => tool.name === "bash")!;
+		settle(bash, "b1", "Check repo state", quickState());
+		settle(bash, "b2", "Run the test suite", quickState());
+		settle(bash, "b3", "List the tree", quickState());
+
+		// The line stays on the run that opened the sequence; the ones after it draw nothing.
+		expect(
+			rowLine(bash.renderCall!({ command: "run b1", description: "Check repo state" }, fakeTheme, renderContext({ toolCallId: "b1", state: quickState() }))),
+		).toBe("◆ Ran 3 commands: Check repo state, Run the test suite +1 more 1.2s");
+		expect(
+			paint(bash.renderCall!({ command: "run b2", description: "Run the test suite" }, fakeTheme, renderContext({ toolCallId: "b2", state: quickState() }))),
+		).toBe("");
+
+		// Expanded, each covered run is its own row with its own output again.
+		const expanded = paint(
+			bash.renderResult!(
+				{ content: [{ type: "text", text: "ok" }], details: {} },
+				{ expanded: true, isPartial: false },
+				fakeTheme,
+				renderContext({
+					toolCallId: "b2",
+					args: { command: "run b2", description: "Run the test suite" },
+					state: quickState(),
+					expanded: true,
+				}),
+			),
+		);
+		// Expanded shows the run's real command, which is what the row was collapsing.
+		expect(expanded).toContain("◆ Ran run b2");
+		expect(expanded).toContain("ok");
+	});
+
+	it("keeps a slow run its own row between the quick ones", () => {
+		const burst = new BurstTracker();
+		const tools = quietTools(process.cwd(), burst);
+		const bash = tools.find((tool) => tool.name === "bash")!;
+		settle(bash, "b1", "Check repo state", quickState());
+		settle(bash, "slow", "Run the test suite", { startedAt: Date.now() - 2400 });
+		settle(bash, "b3", "List the tree", quickState());
+
+		// A quick run that is alone keeps its own row and, being sub-second, no clock at all.
+		expect(
+			rowLine(bash.renderCall!({ command: "run b1", description: "Check repo state" }, fakeTheme, renderContext({ toolCallId: "b1", state: quickState() }))),
+		).toBe("◆ Ran Check repo state");
+		// The slow run keeps its own row with its own settled clock.
+		expect(
+			rowLine(
+				bash.renderCall!({ command: "run slow", description: "Run the test suite" }, fakeTheme, renderContext({ toolCallId: "slow", state: { startedAt: Date.now() - 2400 } })),
+			),
+		).toBe("◆ Ran Run the test suite 2.4s");
+		expect(
+			rowLine(bash.renderCall!({ command: "run b3", description: "List the tree" }, fakeTheme, renderContext({ toolCallId: "b3", state: quickState() }))),
+		).toBe("◆ Ran List the tree");
+	});
+
+	it("never merges a bash run with an inspect summary", () => {
+		const burst = new BurstTracker();
+		const tools = quietTools(process.cwd(), burst);
+		const read = tools.find((tool) => tool.name === "read")!;
+		const bash = tools.find((tool) => tool.name === "bash")!;
+		const result = { content: [{ type: "text", text: "ok" }], details: {} };
+		read.renderResult!(result, { expanded: false, isPartial: false }, fakeTheme, renderContext({ toolCallId: "r1", args: { path: "a" } }));
+		settle(bash, "b1", "Check repo state", quickState());
+		expect(
+			paint(read.renderResult!(result, { expanded: false, isPartial: false }, fakeTheme, renderContext({ toolCallId: "r1", args: { path: "a" } }))),
+		).toContain("Read a");
+		expect(
+			rowLine(bash.renderCall!({ command: "run b1", description: "Check repo state" }, fakeTheme, renderContext({ toolCallId: "b1", state: quickState() }))),
+		).toBe("◆ Ran Check repo state");
 	});
 });

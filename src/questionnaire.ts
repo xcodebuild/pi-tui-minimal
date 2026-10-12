@@ -1,6 +1,6 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { emphasizeError, emphasizeHeader } from "./emphasis.ts";
-import { DIAMOND, formatToolError } from "./summaries.ts";
+import type { QuietRow } from "./render.ts";
+import { DIAMOND, toolErrorParts } from "./summaries.ts";
 
 /**
  * The quiet row for `ask_user_question` (the questionnaire tool registered by the
@@ -19,7 +19,7 @@ import { DIAMOND, formatToolError } from "./summaries.ts";
  * couplings already are: inside the transcript container patch (`spacing.ts`), which asks for
  * these lines once per row per render and otherwise leaves the row alone. It keys off the row
  * component's own fields (`toolName`, `args`, `result`, `isPartial`, `expanded`), so a pi
- * release that renames them makes `questionnaireRowLines` return `undefined` and the row falls
+ * release that renames them makes `questionnaireRow` returns `undefined` and the row falls
  * back to pi's default rendering instead of breaking.
  */
 
@@ -179,11 +179,11 @@ function expandedLines(theme: Theme, questions: QuestionShape[], result: ResultS
  * single line; only the expanded view adds the per-question answers. `liveMarker` is the
  * animated glyph the pending row wears instead of `◆`.
  */
-export function questionnaireRowLines(
+export function questionnaireRow(
 	component: AnyComponent | undefined,
 	theme: Theme,
 	liveMarker: string = DIAMOND,
-): string[] | undefined {
+): QuietRow | undefined {
 	if (!isQuestionnaireRow(component)) {
 		return undefined;
 	}
@@ -191,16 +191,19 @@ export function questionnaireRowLines(
 	const headers = headerLabel(questions);
 	const result = component.result as ResultShape | undefined;
 	if (!result || component.isPartial === true) {
-		return [emphasizeHeader(theme, formatAsking(headers, liveMarker))];
+		return { parts: { title: formatAsking(headers, liveMarker) } };
 	}
 	const details = result.details;
 	if (details?.error !== undefined) {
-		return [emphasizeError(theme, formatToolError(ASK_USER_QUESTION, errorDetail(textOf(result), details.error)))];
+		return {
+			error: true,
+			parts: toolErrorParts(ASK_USER_QUESTION, errorDetail(textOf(result), details.error)),
+		};
 	}
 	const declined = details?.cancelled === true;
-	const header = emphasizeHeader(theme, declined ? formatDeclined(headers) : formatAsked(headers));
+	const header = declined ? formatDeclined(headers) : formatAsked(headers);
 	if (component.expanded !== true) {
-		return [header];
+		return { parts: { title: header } };
 	}
-	return [header, ...expandedLines(theme, questions, result)];
+	return { parts: { title: header }, output: expandedLines(theme, questions, result) };
 }

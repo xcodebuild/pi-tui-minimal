@@ -1,10 +1,10 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { escapesOf, isBlankLine } from "./ansi.ts";
+import { escapesOf, isBlankLine, visibleText } from "./ansi.ts";
 import { liveGlyph } from "./live.ts";
 import { isPromptRow, promptLines } from "./prompt.ts";
-import { questionnaireRowLines } from "./questionnaire.ts";
-import { foreignToolRowLines } from "./rows.ts";
+import { questionnaireRow } from "./questionnaire.ts";
+import { layoutQuietRow } from "./render.ts";
+import { foreignToolRow } from "./rows.ts";
 
 // The line helpers live in `ansi.ts` so the prompt marker can share them; they are re-exported
 // here because this is the module the transcript patch is read from.
@@ -29,21 +29,19 @@ export { escapesOf, isBlankLine, visibleText } from "./ansi.ts";
  *   click routing and scrolling keep matching the shorter output,
  * - an assistant message gets the same pass one level down, on its own `contentContainer`,
  *   because that is where pi puts the `Spacer(1)` between a thinking block and the answer
- *   that follows it — see `patchMessageContent`.
+ *   that follows it — see `patchMessageContent`; that phase-boundary spacer is retained.
  *
  * Only the agent's blocks are tightened: a user message keeps pi's box padding, which leaves
- * exactly one blank line above and below a prompt and none inside the answer. Inside an answer
- * there is no blank line left at all — not above the reply, and not between the `◆ Thought`
- * label and the text that follows it.
+ * exactly one blank line above and below a prompt and none inside the answer. Execution rows stay
+ * tight, while one blank remains where assistant prose meets a tool row or `· Thought` label.
  *
  * The nested pass sees one container the transcript-level one cannot: `AssistantMessageComponent`
  * renders its blocks into a `contentContainer` of its own, so the blank pi writes between a
  * thinking run and the answer after it (`updateContent` adds a `Spacer(1)` when visible content
  * follows the run) is a child of *that* container, not of the transcript. The transcript pass
- * installs the pass on each message's `contentContainer` before rendering it, which is also why
- * a message reads `◆ Thought` and its text on adjacent lines instead of paying a blank for the
- * pair. Nothing legitimate is lost: every blank inside a message is one of pi's `Spacer`s —
- * paragraph breaks live inside a single `Markdown` child's own output, below this level.
+ * installs the pass on each message's `contentContainer` before rendering it. The pass keeps that
+ * one spacer as a phase boundary, while dropping spacers between execution rows. Paragraph breaks
+ * live inside a single `Markdown` child's own output, below this level, and remain untouched.
  *
  * The tree this walks is the same in pi's regular and fullscreen modes. Fullscreen wraps the
  * document container in a `ScrollView` (`document -> ScrollView -> VStack`), but `ScrollView`
@@ -180,6 +178,7 @@ function patchMessageContent(
 	component: AnyComponent | undefined,
 	getTheme: () => Theme | undefined,
 	isExpanded: () => boolean,
+	liveMarker: () => string,
 ): void {
 	if (!component || typeof component.updateContent !== "function") {
 		return;
@@ -187,8 +186,52 @@ function patchMessageContent(
 	const content = component.contentContainer;
 	if (content) {
 		patchMessageExpansion(component, isExpanded);
-		patchContainer(content, getTheme, isExpanded);
+		patchContainer(content, getTheme, isExpanded, liveMarker, true);
 	}
+}
+
+type BoundaryKind = "prose" | "machinery" | "other";
+
+function isToolRow(component: AnyComponent | undefined): boolean {
+	return Boolean(component && typeof component.updateResult === "function" && "toolCallId" in component);
+}
+
+function isAssistantMessage(component: AnyComponent | undefined): boolean {
+	return Boolean(component && typeof component.updateContent === "function" && "contentContainer" in component);
+}
+
+function isThinkingLine(line: string): boolean {
+	return /^\s*\S\s+(?:Thinking|Thought)\b/.test(visibleText(line));
+}
+
+function boundaryKind(
+	component: AnyComponent | undefined,
+	lines: string[],
+	edge: "first" | "last",
+	insideMessage: boolean,
+): BoundaryKind | undefined {
+	if (isToolRow(component)) {
+		return "machinery";
+	}
+	const content = lines.filter((line) => !isBlankLine(line));
+	const line = edge === "first" ? content[0] : content.at(-1);
+	if (line === undefined) {
+		return undefined;
+	}
+	if (isThinkingLine(line)) {
+		return "machinery";
+	}
+	if (insideMessage || isAssistantMessage(component)) {
+		return "prose";
+	}
+	return "other";
+}
+
+function isPhaseBoundary(left: BoundaryKind | undefined, right: BoundaryKind | undefined): boolean {
+	return (
+		(left === "prose" && right === "machinery") ||
+		(left === "machinery" && right === "prose")
+	);
 }
 
 /**
@@ -214,6 +257,7 @@ export function patchContainer(
 	getTheme: () => Theme | undefined = () => undefined,
 	isExpanded: () => boolean = () => false,
 	liveMarker: () => string = () => liveGlyph(),
+	insideMessage = false,
 ): boolean {
 	if (!container || typeof container.render !== "function" || container[PATCHED]) {
 		return false;
@@ -224,7 +268,7 @@ export function patchContainer(
 		const children = this.children;
 		if (Array.isArray(children)) {
 			for (const child of children) {
-				patchMessageContent(child, getTheme, isExpanded);
+				patchMessageContent(child, getTheme, isExpanded, liveMarker);
 			}
 		}
 		const lines = render.call(this, width);
@@ -234,12 +278,36 @@ export function patchContainer(
 		}
 		const theme = getTheme();
 		const marker = liveMarker();
-		const kept: string[] = [];
+		const chunks: Array<{ component?: AnyComponent; lines: string[] }> = [];
 		let at = 0;
 		for (const entry of layout.children) {
 			const height = Number.isFinite(entry?.height) ? entry.height : 0;
 			const childLines = lines.slice(at, at + height);
 			at += height;
+			chunks.push({ component: entry?.component, lines: childLines });
+		}
+		const nearestKind = (index: number, step: -1 | 1): BoundaryKind | undefined => {
+			for (let cursor = index + step; cursor >= 0 && cursor < chunks.length; cursor += step) {
+				const chunk = chunks[cursor];
+				if (!chunk) {
+					continue;
+				}
+				const kind = boundaryKind(
+					chunk.component,
+					chunk.lines,
+					step < 0 ? "last" : "first",
+					insideMessage,
+				);
+				if (kind !== undefined) {
+					return kind;
+				}
+			}
+			return undefined;
+		};
+
+		const kept: string[] = [];
+		for (const [index, entry] of layout.children.entries()) {
+			const childLines = chunks[index]?.lines ?? [];
 			const tightened = tightenChild(entry?.component, childLines);
 			// The user's own turn keeps pi's rendering and only gains its `❯`, so it is spliced into
 			// the lines that came back; the substituted rows below are rebuilt from scratch instead.
@@ -247,16 +315,25 @@ export function patchContainer(
 			// The questionnaire first (it has the richer answer view), then any other foreign tool row.
 			const replaced =
 				theme && !marked
-					? (questionnaireRowLines(entry?.component, theme, marker) ??
-						foreignToolRowLines(entry?.component, theme, marker))
+					? (questionnaireRow(entry?.component, theme, marker) ?? foreignToolRow(entry?.component, theme, marker))
 					: undefined;
 			// pi's own rows are wrapped to the width by the `Text` they render into; a substituted
-			// row has no `Text`, so it is wrapped here.
-			const final =
+			// row has no `Text`, so it is laid out here — gutter, hanging indent and metric column.
+			let final =
 				marked ??
-				(replaced
-					? carryEscapes(tightened, replaced).flatMap((line) => wrapTextWithAnsi(line, Math.max(1, width)))
+				(theme && replaced
+					? carryEscapes(tightened, layoutQuietRow(theme, replaced, Math.max(1, width)))
 					: tightened);
+			if (
+				final.length > 0 &&
+				!isBlankLine(final[0] ?? "") &&
+				isPhaseBoundary(
+					nearestKind(index, -1),
+					boundaryKind(entry?.component, final, "first", insideMessage),
+				)
+			) {
+				final = [escapesOf(childLines[0] ?? ""), ...final];
+			}
 			if (final.length !== childLines.length) {
 				entry.height = final.length;
 				offsetClicks(entry?.component, childLines.length - final.length);

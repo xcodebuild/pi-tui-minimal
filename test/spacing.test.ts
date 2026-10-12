@@ -6,7 +6,7 @@ import {
 	getMarkdownTheme,
 	initTheme,
 } from "@earendil-works/pi-coding-agent";
-import { Container, ScrollView, Spacer, Text, VStack } from "@earendil-works/pi-tui";
+import { Container, ScrollView, Spacer, Text, VStack, visibleWidth } from "@earendil-works/pi-tui";
 import { expect } from "./expect.ts";
 import { BurstTracker } from "../src/burst.ts";
 import {
@@ -121,8 +121,8 @@ describe("transcript spacing", () => {
 	it("keeps the escapes of a dropped line so zone markers survive", () => {
 		expect(escapesOf("\x1b]133;A\x07  ")).toBe("\x1b]133;A\x07");
 		expect(escapesOf("   ")).toBe("");
-		expect(tightenChild(fakeAssistant(["◆ Thought"]), ["\x1b]133;A\x07", "◆ Thought"])).toEqual([
-			"\x1b]133;A\x07◆ Thought",
+		expect(tightenChild(fakeAssistant(["· Thought"]), ["\x1b]133;A\x07", "· Thought"])).toEqual([
+			"\x1b]133;A\x07· Thought",
 		]);
 	});
 
@@ -154,7 +154,7 @@ describe("transcript spacing", () => {
 	it("tightens a container's output and its mouse layout", () => {
 		const row = fakeRow("call-1");
 		const user = fakeUser("hi");
-		const chat: any = fakeContainer([user, { render: () => [""] }, fakeAssistant(["◆ Thought"]), row]);
+		const chat: any = fakeContainer([user, { render: () => [""] }, fakeAssistant(["· Thought"]), row]);
 		expect(patchContainer(chat)).toBe(true);
 		expect(patchContainer(chat)).toBe(false);
 
@@ -163,7 +163,7 @@ describe("transcript spacing", () => {
 			"",
 			"hi",
 			"",
-			"◆ Thought",
+			"· Thought",
 			"◆ Run git status",
 		]);
 		// The container's own click routing must match the shorter output: the row is line 4,
@@ -175,10 +175,10 @@ describe("transcript spacing", () => {
 		expect(row.clicks).toEqual([1, 1]);
 	});
 
-	it("tightens an assistant message's own content container", () => {
+	it("keeps one phase break between a thought label and prose", () => {
 		const assistant = fakeAssistantWithContent([
 			new Spacer(1),
-			new Text("◆ Thought", 0, 0),
+			new Text("· Thought", 0, 0),
 			new Spacer(1),
 			new Text("answer", 0, 0),
 		]);
@@ -188,18 +188,55 @@ describe("transcript spacing", () => {
 		expect(isBlankLine(chat.render(80)[3] ?? "")).toBe(true);
 
 		expect(patchContainer(chat)).toBe(true);
-		expect(chat.render(80).map((line: string) => visibleText(line).trimEnd())).toEqual(["◆ Thought", "answer"]);
+		expect(chat.render(80).map((line: string) => visibleText(line).trimEnd())).toEqual(["· Thought", "", "answer"]);
 		// The inner layout is the one whose heights are now wrong, so it is the one repaired.
-		expect(assistant.contentContainer.mouseLayout.children.map((entry: any) => entry.height)).toEqual([0, 1, 0, 1]);
+		expect(assistant.contentContainer.mouseLayout.children.map((entry: any) => entry.height)).toEqual([0, 1, 0, 2]);
 	});
 
 	it("installs the message pass before a finalized message renders, once", () => {
-		const assistant = fakeAssistantWithContent([new Text("◆ Thought", 0, 0), new Spacer(1), new Text("answer", 0, 0)]);
+		const assistant = fakeAssistantWithContent([new Text("· Thought", 0, 0), new Spacer(1), new Text("answer", 0, 0)]);
 		const chat: any = fakeContainer([assistant]);
 		expect(patchContainer(chat)).toBe(true);
 		// First render is already tight — a restored message may never render again.
-		expect(chat.render(80).map((line: string) => visibleText(line).trimEnd())).toEqual(["◆ Thought", "answer"]);
+		expect(chat.render(80).map((line: string) => visibleText(line).trimEnd())).toEqual(["· Thought", "", "answer"]);
 		expect(patchContainer(assistant.contentContainer)).toBe(false);
+	});
+
+	it("keeps thinking and tool rows compact", () => {
+		const assistant = fakeAssistant(["· Thought"]);
+		const row = fakeRow("call-compact");
+		const chat: any = fakeContainer([assistant, { render: () => [""] }, row]);
+		expect(patchContainer(chat)).toBe(true);
+		expect(chat.render(80).map((line: string) => visibleText(line).trimEnd())).toEqual([
+			"· Thought",
+			"◆ Run git status",
+		]);
+	});
+
+	it("keeps one phase break when a tool follows prose", () => {
+		const assistant = fakeAssistant(["answer"]);
+		const row = fakeRow("call-after-prose");
+		const chat: any = fakeContainer([assistant, { render: () => [""] }, row]);
+		expect(patchContainer(chat)).toBe(true);
+		expect(chat.render(80).map((line: string) => visibleText(line).trimEnd())).toEqual([
+			"answer",
+			"",
+			"◆ Run git status",
+		]);
+		expect(chat.mouseLayout.children.map((entry: any) => entry.height)).toEqual([1, 0, 2]);
+	});
+
+	it("keeps one phase break when prose follows a tool", () => {
+		const row = fakeRow("call-before-prose");
+		const assistant = fakeAssistant(["answer"]);
+		const chat: any = fakeContainer([row, { render: () => [""] }, assistant]);
+		expect(patchContainer(chat)).toBe(true);
+		expect(chat.render(80).map((line: string) => visibleText(line).trimEnd())).toEqual([
+			"◆ Run git status",
+			"",
+			"answer",
+		]);
+		expect(chat.mouseLayout.children.map((entry: any) => entry.height)).toEqual([1, 0, 2]);
 	});
 
 	it("rebuilds an assistant message when the Ctrl+O state flips", () => {
@@ -242,7 +279,7 @@ describe("transcript spacing", () => {
 		expect(patchContainer(chat, () => markerTheme)).toBe(true);
 
 		const lines = chat.render(80);
-		expect(lines.length).toBe(5);
+		expect(lines.length).toBe(6);
 		expect(lines[1] ?? "").toMatch(/❯.*不要动画/);
 		// The prompt keeps its own blank lines, its height, and therefore its click coordinates.
 		expect(lines.map((line: string) => visibleText(line).trimEnd())).toEqual([
@@ -250,14 +287,57 @@ describe("transcript spacing", () => {
 			"<b>[accent]❯[/]</b> 不要动画，直接平铺",
 			"",
 			"reply",
+			"",
 			"◆ Run git status",
 		]);
-		expect(chat.mouseLayout.children.map((entry: any) => entry.height)).toEqual([3, 0, 1, 1]);
+		expect(chat.mouseLayout.children.map((entry: any) => entry.height)).toEqual([3, 0, 1, 2]);
+	});
+
+	it("lays a substituted row out and repairs its height and clicks", () => {
+		// Faulty: a foreign tool that failed with a long message. It renders four lines of its own
+		// and collapses to a header plus a metric line, so the container has to repair both the
+		// height it recorded and the click it forwards.
+		const row = {
+			toolName: "ffgrep",
+			toolCallId: "call-long",
+			args: { pattern: "useEffect", path: "src" },
+			result: { content: [{ type: "text", text: "ENOENT: no such file or directory" }], isError: true },
+			isPartial: false,
+			expanded: false,
+			clicks: [] as number[],
+			updateResult() {},
+			render(): string[] {
+				return ["", "ffgrep", "ENOENT: no such file or directory", ""];
+			},
+			handleMouse(event: { y: number }) {
+				this.clicks.push(event.y);
+				return { y: event.y - 1 };
+			},
+		};
+		const chat: any = new Container();
+		chat.addChild(row as never);
+		expect(row.render(26).length).toBe(4);
+
+		expect(patchContainer(chat, () => fakeTheme)).toBe(true);
+		const rendered = chat.render(26);
+		const lines = rendered.map((line: string) => visibleText(line).trimEnd());
+		// The error is far too wide to be a column, so it joins the title as prose and wraps with
+		// it: more than one line, every one of them inside the container's width.
+		expect(lines.length).toBeGreaterThan(1);
+		for (const line of lines) {
+			expect(visibleWidth(visibleText(line)) <= 26).toBe(true);
+		}
+		expect(lines[0]?.startsWith("  × ffgrep")).toBe(true);
+		// The height recorded for the row matches what it now draws, and the lines it lost are
+		// handed back to its own mouse handler, which counts from its own first line.
+		expect(chat.mouseLayout.children.map((entry: any) => entry.height)).toEqual([rendered.length]);
+		chat.handleMouse({ type: "click", button: "left", y: 0, height: 1, width: 26, screenX: 0, screenY: 0 });
+		expect(row.clicks).toEqual([4 - rendered.length]);
 	});
 
 	it("no-ops before a TUI is attached and installs on sweep", async () => {
 		const row = fakeRow("call-1");
-		const chat = fakeContainer([fakeAssistant(["◆ Thought"]), row]);
+		const chat = fakeContainer([fakeAssistant(["· Thought"]), row]);
 		const spacing: Spacing = createSpacing();
 		spacing.sweep();
 		expect(chat.render(80).length).toBe(4);
@@ -372,11 +452,11 @@ describe("transcript spacing against pi's components", () => {
 		expect(visibleText(lines[content] ?? "")).toMatch(/^❯ 不要动画/);
 	});
 
-	it("removes the real spacer between a thought label and the answer", () => {
+	it("keeps one real phase break between a thought label and the answer", () => {
 		// pi's `AssistantMessageComponent` collapses a finalized thinking run through the
 		// transformer and then adds a `Spacer(1)` for the answer that follows it.
 		initTheme(undefined, false);
-		const label = "◆ Thought for 9.1s";
+		const label = "· Thought for 9.1s";
 		const message = {
 			role: "assistant",
 			content: [
@@ -402,7 +482,7 @@ describe("transcript spacing against pi's components", () => {
 		spacing.sweep();
 
 		const lines = chat.render(80).map((line) => visibleText(line).trim());
-		expect(lines).toEqual([label, "工作目录是空的。"]);
+		expect(lines).toEqual([label, "", "工作目录是空的。"]);
 		// Click-to-reveal still lands on the thinking line: its handler is handed the line it had
 		// before the blank above it was dropped.
 		chat.handleMouse(click(0));
@@ -456,8 +536,9 @@ describe("transcript spacing against pi's components", () => {
 		// height repair reach it; only the ancestry differs.
 		expect(document.render(80).map((line) => visibleText(line).trimEnd())).toEqual([
 			"reply text",
+			"",
 			"◆ Run git status",
 		]);
-		expect((chat as any).mouseLayout.children.map((entry: any) => entry.height)).toEqual([1, 0, 1]);
+		expect((chat as any).mouseLayout.children.map((entry: any) => entry.height)).toEqual([1, 0, 2]);
 	});
 });

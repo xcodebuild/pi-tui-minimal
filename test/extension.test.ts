@@ -86,14 +86,14 @@ describe("extension factory", () => {
 				isStreaming: false,
 				availableWidth: 80,
 			}),
-		).toBe("◆ Thought 2 tokens");
+		).toBe("  · Thought 2 tokens");
 		expect(
 			pi.markdownTransformers[0]("thinking", {
 				messageType: "assistant-thinking",
 				isStreaming: true,
 				availableWidth: 80,
 			}),
-		).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Thinking 2 tokens$/);
+		).toMatch(/^  [⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Thinking 2 tokens$/);
 	});
 
 	it("session_start is a no-op without UI", async () => {
@@ -107,7 +107,7 @@ describe("extension factory", () => {
 		);
 	});
 
-	it("session_start installs the patched theme and accents the thinking labels", async () => {
+	it("session_start installs the patched theme and steps the thinking labels back", async () => {
 		const pi = mockPi();
 		factory(pi as any);
 		const ui = mockUi();
@@ -126,16 +126,16 @@ describe("extension factory", () => {
 		expect(ui.installed.fg("thinkingText", "x")).toBe("[dim]x[/]");
 		expect(ui.installed.fg("accent", "x")).toBe("[accent]x[/]");
 
-		expect(ui.hiddenLabel).toBe("<b>[accent]◆[/]</b> <b>[accent]Thinking[/]</b>");
+		expect(ui.hiddenLabel).toBe("[dim]·[/] [dim]Thinking[/]");
 		const [transform] = pi.markdownTransformers;
-		// A streaming label wears the live glyph, bold in the warning slot rather than accent.
+		// A streaming label keeps its live glyph, but the whole metadata row stays dim.
 		const streaming = transform!("a\nb", {
 			messageType: "assistant-thinking",
 			isStreaming: true,
 			availableWidth: 80,
 		});
-		expect(streaming).toMatch(/^<b>\[warning\][⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\[\/\]<\/b> /);
-		expect(streaming).toContain("<b>[accent]Thinking[/]</b>[dim] [/]<b>[dim]1 token[/]</b>");
+		expect(streaming).toMatch(/^  \[dim\][⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]\[\/\] /);
+		expect(streaming).toContain("[dim]Thinking[/][dim] [/][dim]1 token[/]");
 
 		const message = { role: "assistant", content: [{ type: "thinking", thinking: "a" }] };
 		for (const handler of pi.events.get("message_update") ?? []) {
@@ -144,8 +144,10 @@ describe("extension factory", () => {
 		for (const handler of pi.events.get("message_end") ?? []) {
 			await handler({ type: "message_end", message }, ctx);
 		}
+		// The run took far less than a second here, so the settled label carries the count and,
+		// by the sub-second rule, no clock at all — it stays one plain dim line.
 		expect(
 			transform!("a", { messageType: "assistant-thinking", isStreaming: false, availableWidth: 80 }),
-		).toContain("[dim] for ");
+		).toBe("  [dim]·[/] [dim]Thought[/][dim] [/][dim]1 token[/]");
 	});
 });

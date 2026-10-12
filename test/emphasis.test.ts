@@ -7,6 +7,7 @@ import { emphasizeError, emphasizeHeader, emphasizeThinkingLabel } from "../src/
 const ACCENT = "<b>[accent]";
 const BOLD = "<b>";
 const DIM = "[dim]";
+const BODY = "[text]";
 const THINKING = "[thinkingText]";
 const ADDED = "[toolDiffAdded]";
 const REMOVED = "[toolDiffRemoved]";
@@ -38,8 +39,8 @@ describe("emphasizeHeader", () => {
 	});
 
 	it("bolds the paths of a merged read line and leaves the hidden count dim", () => {
-		expect(emphasizeHeader(markerTheme, "◆ Read src/a.ts, test/b.ts +44, Listed 3 dirs")).toBe(
-			`${ACCENT}◆[/]</b> ${ACCENT}Read[/]</b> ${BOLD}src/a.ts, test/b.ts</b>${DIM} +44[/]${DIM}, [/]` +
+		expect(emphasizeHeader(markerTheme, "◆ Read src/a.ts, test/b.ts +44 more, Listed 3 dirs")).toBe(
+			`${ACCENT}◆[/]</b> ${ACCENT}Read[/]</b> ${BOLD}src/a.ts, test/b.ts</b>${DIM} +44 more[/]${DIM}, [/]` +
 				`${ACCENT}Listed[/]</b> ${BOLD}3</b> ${DIM}dirs[/]`,
 		);
 	});
@@ -95,12 +96,12 @@ describe("emphasizeHeader", () => {
 		);
 	});
 
-	it("keeps a thought's clock dim, ahead of the bold count", () => {
-		expect(emphasizeHeader(markerTheme, "◆ Thought 1,234 tokens for 0.4s")).toBe(
-			`${ACCENT}◆[/]</b> ${ACCENT}Thought[/]</b>${DIM} [/]${BOLD}1,234 tokens</b>${DIM} for 0.4s[/]`,
+	it("steps a thought label back to the light marker", () => {
+		expect(emphasizeHeader(markerTheme, "· Thought 1,234 tokens for 2.4s")).toBe(
+			`${DIM}·[/] ${DIM}Thought[/]${DIM} [/]${THINKING}1,234 tokens[/]${DIM} for 2.4s[/]`,
 		);
-		expect(emphasizeHeader(markerTheme, "◆ Thought for 0.4s")).toBe(
-			`${ACCENT}◆[/]</b> ${ACCENT}Thought[/]</b>${DIM} for 0.4s[/]`,
+		expect(emphasizeHeader(markerTheme, "· Thought for 2.4s")).toBe(
+			`${DIM}·[/] ${DIM}Thought[/]${DIM} for 2.4s[/]`,
 		);
 	});
 
@@ -117,88 +118,92 @@ describe("emphasizeHeader", () => {
 
 /**
  * A running row wears an animated glyph instead of `◆` (`live.ts`). The emphasis layer is what
- * decides how the two read: `◆` in the accent slot, the live glyph bold in the warning slot, so
- * running and settled differ by colour as well as by shape.
+ * decides how the two read: `◆` and the live glyph share the accent slot and the weight, so the
+ * running cue is the row body — the title is drawn brighter while it runs (`render.ts`), and the
+ * glyph shape is what says "not settled yet". Nothing is drawn in the `warning` slot, so a
+ * spinner is never the most saturated thing on screen.
  */
 describe("live marker emphasis", () => {
-	it("paints the live glyph warning-bold and keeps the row body as it was", () => {
+	it("paints the live glyph accent-bold and lifts the row's text out of dim", () => {
 		expect(emphasizeHeader(markerTheme, "⠋ Run git status")).toBe(
-			`<b>[warning]⠋[/]</b> ${ACCENT}Run[/]</b>${DIM} git status[/]`,
+			`<b>[accent]⠋[/]</b> ${ACCENT}Run[/]</b>${BODY} git status[/]`,
 		);
 		expect(emphasizeHeader(markerTheme, "⠼ ls .")).toBe(
-			`<b>[warning]⠼[/]</b> ${ACCENT}ls[/]</b>${BOLD} .</b>`,
+			`<b>[accent]⠼[/]</b> ${ACCENT}ls[/]</b>${BOLD} .</b>`,
+		);
+	});
+
+	it("keeps a settled row's text dim, so only the running one is bright", () => {
+		expect(emphasizeHeader(markerTheme, "◆ Ran git status")).toBe(
+			`${ACCENT}◆[/]</b> ${ACCENT}Ran[/]</b>${DIM} git status[/]`,
 		);
 	});
 
 	it("keeps a live glyph whole when it is the only thing on the row", () => {
-		expect(emphasizeHeader(markerTheme, "⠹")).toBe("<b>[warning]⠹[/]</b>");
+		expect(emphasizeHeader(markerTheme, "⠹")).toBe("<b>[accent]⠹[/]</b>");
 	});
 
-	it("settles a failed row back to `◆`, however it was handed in", () => {
+	it("gives a failed row `×` however it was handed in", () => {
 		expect(emphasizeError(markerTheme, "⠋ Run npm test  exit 1")).toBe(
-			`[error]${BOLD}◆</b> ${BOLD}Run</b> npm test${BOLD}  exit 1</b>[/]`,
+			`[error]${BOLD}×</b> ${BOLD}Run</b> npm test${BOLD}  exit 1</b>[/]`,
+		);
+		expect(emphasizeError(markerTheme, "◆ Run npm test  exit 1")).toBe(
+			`[error]${BOLD}×</b> ${BOLD}Run</b> npm test${BOLD}  exit 1</b>[/]`,
 		);
 	});
 
 	it("keeps the live glyph on a streaming thinking label", () => {
 		expect(emphasizeThinkingLabel(markerTheme, "⠼ Thinking 1,234 tokens")).toBe(
-			`<b>[warning]⠼[/]</b> ${ACCENT}Thinking[/]</b>${THINKING} [/]` +
-				`${BOLD}${THINKING}1,234 tokens[/]</b>`,
+			`${DIM}⠼[/] ${DIM}Thinking[/]${THINKING} [/]${THINKING}1,234 tokens[/]`,
 		);
 	});
 });
 
 describe("emphasizeError", () => {
 	it("keeps the error colour and bolds the marker, the action and the exit code", () => {
-		expect(emphasizeError(markerTheme, "◆ Run npm test  exit 1")).toBe(
-			`[error]${BOLD}◆</b> ${BOLD}Run</b> npm test${BOLD}  exit 1</b>[/]`,
+		expect(emphasizeError(markerTheme, "× Run npm test  exit 1")).toBe(
+			`[error]${BOLD}×</b> ${BOLD}Run</b> npm test${BOLD}  exit 1</b>[/]`,
 		);
 	});
 
 	it("bolds the status of a run that failed without an exit code", () => {
-		expect(emphasizeError(markerTheme, "◆ Run false  error")).toBe(
-			`[error]${BOLD}◆</b> ${BOLD}Run</b> false${BOLD}  error</b>[/]`,
+		expect(emphasizeError(markerTheme, "× Run false  error")).toBe(
+			`[error]${BOLD}×</b> ${BOLD}Run</b> false${BOLD}  error</b>[/]`,
 		);
 	});
 
 	it("bolds the tool name of a tool failure", () => {
-		expect(emphasizeError(markerTheme, "◆ edit  ENOENT: no such file")).toBe(
-			`[error]${BOLD}◆</b> ${BOLD}edit</b>  ENOENT: no such file[/]`,
+		expect(emphasizeError(markerTheme, "× edit  ENOENT: no such file")).toBe(
+			`[error]${BOLD}×</b> ${BOLD}edit</b>  ENOENT: no such file[/]`,
 		);
 	});
 });
 
 describe("emphasizeThinkingLabel", () => {
-	it("accents the marker and the thinking header", () => {
-		expect(emphasizeThinkingLabel(markerTheme, "◆ Thinking")).toBe(
-			`${ACCENT}◆[/]</b> ${ACCENT}Thinking[/]</b>`,
+	it("steps the marker and the word back to dim, with no accent", () => {
+		expect(emphasizeThinkingLabel(markerTheme, "· Thinking")).toBe(`${DIM}·[/] ${DIM}Thinking[/]`);
+	});
+
+	it("re-opens the thinking colour for the clock text", () => {
+		expect(emphasizeThinkingLabel(markerTheme, "· Thought for 2.4s")).toBe(
+			`${DIM}·[/] ${DIM}Thought[/]${THINKING} for 2.4s[/]`,
 		);
 	});
 
-	it("re-opens the thinking colour for the dim clock text", () => {
-		expect(emphasizeThinkingLabel(markerTheme, "◆ Thought for 0.4s")).toBe(
-			`${ACCENT}◆[/]</b> ${ACCENT}Thought[/]</b>${THINKING} for 0.4s[/]`,
-		);
-	});
-
-	it("bolds the live token count under the thinking header", () => {
-		expect(emphasizeThinkingLabel(markerTheme, "◆ Thinking 1,234 tokens")).toBe(
-			`${ACCENT}◆[/]</b> ${ACCENT}Thinking[/]</b>${THINKING} [/]` +
-				`${BOLD}${THINKING}1,234 tokens[/]</b>`,
+	it("keeps the live token count plain under the thinking header", () => {
+		expect(emphasizeThinkingLabel(markerTheme, "· Thinking 1,234 tokens")).toBe(
+			`${DIM}·[/] ${DIM}Thinking[/]${THINKING} [/]${THINKING}1,234 tokens[/]`,
 		);
 	});
 
 	it("puts the count before the clock on a collapsed label", () => {
-		expect(emphasizeThinkingLabel(markerTheme, "◆ Thought 1,234 tokens for 0.4s")).toBe(
-			`${ACCENT}◆[/]</b> ${ACCENT}Thought[/]</b>${THINKING} [/]` +
-				`${BOLD}${THINKING}1,234 tokens[/]</b>${THINKING} for 0.4s[/]`,
+		expect(emphasizeThinkingLabel(markerTheme, "· Thought 1,234 tokens for 2.4s")).toBe(
+			`${DIM}·[/] ${DIM}Thought[/]${THINKING} [/]` + `${THINKING}1,234 tokens[/]${THINKING} for 2.4s[/]`,
 		);
 	});
 
 	it("passes a durationless thought through without a tail", () => {
-		expect(emphasizeThinkingLabel(markerTheme, "◆ Thought")).toBe(
-			`${ACCENT}◆[/]</b> ${ACCENT}Thought[/]</b>`,
-		);
+		expect(emphasizeThinkingLabel(markerTheme, "· Thought")).toBe(`${DIM}·[/] ${DIM}Thought[/]`);
 	});
 });
 
@@ -237,14 +242,16 @@ describe("emphasizeThinkingLabel under pi's thinking Markdown", () => {
 		return new Markdown(styled, 0, 0, markdownTheme, thinkingStyle).render(50)[0] ?? "";
 	}
 
-	it("keeps the accent span", () => {
-		const rendered = renderThinking("◆ Thought for 0.4s");
-		expect(rendered).toContain("\x1b[38;5;80m◆\x1b[39m");
-		expect(rendered).toContain("\x1b[38;5;80mThought\x1b[39m");
+	it("draws the marker and the word dim, with nothing accented", () => {
+		const rendered = renderThinking("· Thought for 2.4s");
+		expect(rendered).toContain("\x1b[38;5;240m·\x1b[39m");
+		expect(rendered).toContain("\x1b[38;5;240mThought\x1b[39m");
+		// The accent colour (80) is what made a thinking row compete with a tool row.
+		expect(rendered).not.toMatch(/\x1b\[38;5;80m/);
 	});
 
 	it("keeps the trailing clock in the thinking colour", () => {
-		expect(renderThinking("◆ Thought 1,234 tokens for 0.4s")).toContain("\x1b[38;5;240m for 0.4s");
+		expect(renderThinking("· Thought 1,234 tokens for 2.4s")).toContain("\x1b[38;5;240m for 2.4s");
 	});
 
 	it("keeps a trailing line in the thinking colour", () => {
