@@ -318,7 +318,7 @@ export function patchContainer(
 					? (questionnaireRow(entry?.component, theme, marker) ?? foreignToolRow(entry?.component, theme, marker))
 					: undefined;
 			// pi's own rows are wrapped to the width by the `Text` they render into; a substituted
-			// row has no `Text`, so it is laid out here — gutter, hanging indent and metric column.
+			// row has no `Text`, so it is laid out here — gutter, hanging indent and metric.
 			let final =
 				marked ??
 				(theme && replaced

@@ -9,7 +9,7 @@ import { DIAMOND, ERROR_MARKER, PROMPT, THOUGHT_MARKER } from "./summaries.ts";
  * layer is the one place that decides what carries weight: the `◆` marker (or, on a row that is
  * still running, its animated glyph from `live.ts`) and the action word are accented and bold,
  * counts and paths are bold, and everything else — descriptions, merge nouns, command text, and
- * the metric column — stays in the theme's dim slot. A thinking label is the deliberate
+ * the metric — stays in the theme's dim slot. A thinking label is the deliberate
  * exception: it wears the light `·` marker with no accent and no weight, because meta-commentary
  * should not compete with actions, and a failed row wears `×` in the error colour.
  *
@@ -253,7 +253,7 @@ function styleBody(theme: EmphasisTheme, rest: string, body: BodyStyle): string 
 }
 
 /**
- * Restyles the measurement a row carries in its metric column: `1.2s`, `128 lines`, `−3 +12`,
+ * Restyles the measurement a row carries in its metric: `1.2s`, `128 lines`, `−3 +12`,
  * `exit 2`. Line counts keep pi's diff colours so an added and a removed count never look alike;
  * everything else — clocks, exit codes, error text — is dim, because a measurement is not news.
  */

@@ -19,8 +19,8 @@ import { createSpacing, patchContainer, visibleText } from "../src/spacing.ts";
 
 /**
  * A substituted questionnaire row, laid out the way the transcript patch lays it out, with the
- * gutter stripped and the metric column's padding collapsed: these assertions are about what the
- * row says. The alignment is asserted in `layout.test.ts`.
+ * gutter stripped and the metric's gap collapsed: these assertions are about what the row says.
+ * The layout is asserted in `layout.test.ts`.
  */
 function plain(component: unknown, liveMarker = "◆"): string[] | undefined {
 	const row = questionnaireRow(component as never, fakeTheme, liveMarker);

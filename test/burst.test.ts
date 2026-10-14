@@ -99,7 +99,7 @@ describe("BurstTracker runs", () => {
 		expect(burst.shouldPaintRunCollapsed("c")).toBe(false);
 		const parts = burst.runMergeFor("a");
 		expect(parts?.title).toBe("◆ Ran 3 commands: git status, npm test +1 more");
-		// 1.2s together, so the total is in the metric column.
+		// 1.2s together, so the total is the trailing metric.
 		expect(parts?.metric).toBe("1.2s");
 	});
 

@@ -1,6 +1,6 @@
 {
 	"name": "pi-tui-minimal",
-	"version": "0.2.0",
+	"version": "0.3.0",
 	"description": "Quiet live-then-collapse TUI for the pi coding agent",
 	"type": "module",
 	"license": "MIT",

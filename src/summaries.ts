@@ -20,10 +20,9 @@ export const PROMPT = "❯";
 
 /**
  * One row, split where its layout needs it: the title is what the row says, the metric is the
- * measurement that has to line up with every other row's measurement. Keeping the two apart is
- * what lets the layout right-align the numbers into a column; the formatters below stay plain
- * text so they stay assertable, and `joinRow` rebuilds the one-line shape the transcript used
- * before the metric column existed.
+ * measurement that trails it. Keeping the two apart is what lets the layout book room for a late
+ * measurement before wrapping; the formatters below stay plain text so they stay assertable, and
+ * `joinRow` rebuilds the one-line shape the transcript used before the split existed.
  */
 export type RowParts = {
 	title: string;
@@ -36,7 +35,7 @@ export type RowParts = {
 	metricReserve?: number;
 };
 
-/** The widest a measurement may be and still be laid out as a column rather than as prose. */
+/** The widest a measurement may be and still trail its title rather than fold back into it as prose. */
 export const METRIC_COLUMN_MAX = 24;
 
 /** Room for the widest clock (`1h 2m 3s`); rows that can carry one reserve it from the start. */
@@ -45,16 +44,16 @@ export const CLOCK_RESERVE = 8;
 /** Room for the widest streamed count (`12,345 lines` / `−1,234 +5,678`). */
 export const COUNT_RESERVE = 12;
 
-/** The one-line shape of a row: the metric trails the title. Used by the pre-column callers. */
+/** The one-line shape of a row: the metric trails the title. Used by the pre-split callers. */
 export function joinRow(parts: RowParts): string {
 	return parts.metric === undefined ? parts.title : `${parts.title}  ${parts.metric}`;
 }
 
 /**
- * The clock a metric column carries, or nothing while the row has no duration to show.
+ * The clock a row carries as its metric, or nothing while the row has no duration to show.
  *
  * A run that took a tenth of a second is not worth a measurement: drawing `0.0s` next to it
- * spends nine columns of the row and a whole column of the metric alignment on nothing. The
+ * spends nine columns of the row and a metric slot on nothing. The
  * live glyph is what says a row is still moving, so a sub-second row drops its clock too.
  */
 function clockMetric(seconds?: number): string | undefined {
@@ -69,7 +68,7 @@ export function joinInlineRow(parts: RowParts): string {
 	return parts.metric === undefined ? parts.title : `${parts.title} for ${parts.metric}`;
 }
 
-/** The same, for the callers that predate the metric column. */
+/** The same, for the callers that predate the metric. */
 function inlineClock(parts: RowParts): string {
 	return joinInlineRow(parts);
 }
@@ -185,7 +184,7 @@ export function formatInspectMerge(counts: InspectCounts, reads: readonly string
 
 /**
  * One merged line for a run of quick commands: `Ran 3 commands: git status, npm test +1 more`, with the
- * time they took together in the metric column. Only runs that each settled in under a second are
+ * time they took together in the metric. Only runs that each settled in under a second are
  * covered, so the line never hides work that took real time.
  */
 export function runMergeParts(count: number, summaries: readonly string[], seconds?: number): RowParts {
@@ -322,7 +321,7 @@ export function formatTokenCount(tokens: number): string {
  * The whole live thinking view: the header, then the count of what has arrived so far. One line,
  * so the block below it cannot move as thinking arrives — the number only grows wider.
  *
- * The count stays in the title rather than the metric column: it is what makes the row worth
+ * The count stays in the title rather than the metric: it is what makes the row worth
  * reading, and keeping it next to the word leaves the column for the clock.
  */
 export function thinkingParts(tokens?: number, marker: string = THOUGHT_MARKER, seconds?: number): RowParts {

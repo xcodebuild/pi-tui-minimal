@@ -137,7 +137,7 @@ describe("run summaries", () => {
 	});
 
 	it("leaves the clock off a sub-second run", () => {
-		// `0.0s` is nine columns of the row and a column of the metric alignment spent on nothing.
+		// `0.0s` is nine columns of the row and a metric slot spent on nothing.
 		expect(formatRunLine("git status", undefined, 0.4)).toBe("◆ Run git status");
 		expect(formatRanLine("git status", undefined, 0.4)).toBe("◆ Ran git status");
 		expect(formatRunFull("git status", 0)).toBe("◆ Run git status");

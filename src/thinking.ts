@@ -94,9 +94,9 @@ export type ThinkingLabelStyle = {
 	/** The live glyph a streaming run wears instead of the light `·`. */
 	marker?: string;
 	/**
-	 * Columns the label may use. With a width, the clock is right-aligned into the same metric
-	 * column the tool rows use; without one (the hidden-thinking label, or a test), it trails the
-	 * count as ` for 1.2s`.
+	 * Columns the label may use. With a width, the clock is laid out as the same trailing metric
+	 * the tool rows use; without one (the hidden-thinking label, or a test), it trails the count
+	 * as ` for 1.2s`.
 	 */
 	width?: number;
 };
@@ -114,8 +114,8 @@ function styleParts(parts: RowParts, style: ThinkingLabelStyle): RowParts {
 }
 
 /**
- * One label line: the count in the row, the clock in the metric column when there is a column to
- * put it in. A label that would have to wrap keeps the inline form instead — thinking is the one
+ * One label line: the count in the row, the clock as the metric when there is a width to lay it
+ * out in. A label that would have to wrap keeps the inline form instead — thinking is the one
  * row that has to stay a single line, so its height cannot depend on the terminal's width.
  */
 function labelLine(parts: RowParts, style: ThinkingLabelStyle): string {
@@ -169,7 +169,7 @@ export type ThinkingControllerOptions = {
 	 * `onSessionStart` and dims the labels itself.
 	 */
 	styleLabel?: (text: string) => string;
-	/** Test seam for the clock's styling; defaults to the metric column's dim. */
+	/** Test seam for the clock's styling; defaults to the metric's dim. */
 	styleMetric?: (text: string) => string;
 	/** Test seam for the live clock; defaults to `Date.now`. */
 	now?: () => number;

@@ -27,16 +27,16 @@ function fakeRow(overrides: Record<string, unknown> = {}) {
 
 /**
  * A substituted row, laid out the way the transcript patch lays it out, then with the gutter
- * stripped: these tests are about what a row *says*. The gutter and the metric column are
- * asserted in `layout.test.ts`, and the substitution itself in `spacing.test.ts`.
+ * stripped: these tests are about what a row *says*. The gutter and the metric are asserted in
+ * `layout.test.ts`, and the substitution itself in `spacing.test.ts`.
  */
 function plain(component: unknown, liveMarker = DIAMOND_FOR_TESTS): string[] | undefined {
 	const row = foreignToolRow(component as never, fakeTheme, liveMarker);
 	if (!row) {
 		return undefined;
 	}
-	// Strip the gutter and collapse the metric column's padding: the column's alignment is
-	// asserted once, in `layout.test.ts`.
+	// Strip the gutter and collapse the metric's gap: the layout is asserted once, in
+	// `layout.test.ts`.
 	return layoutQuietRow(fakeTheme, row, 200).map((line) =>
 		visibleText(line).trimEnd().replace(/^ {2}/, "").replace(/ {2,}/g, " "),
 	);

@@ -23,15 +23,8 @@ export const HANGING_INDENT = 2;
 /** Least gap between a title and its metric, so a number never touches the text before it. */
 export const METRIC_GAP = 2;
 
-/** Widest visual rail a collapsed row uses, so metrics stay associated with their titles. */
-export const ROW_RAIL_MAX = 80;
-
 function spaces(count: number): string {
 	return " ".repeat(Math.max(0, count));
-}
-
-function rightAlign(text: string, width: number): string {
-	return `${spaces(width - visibleWidth(text))}${text}`;
 }
 
 /**
@@ -51,20 +44,20 @@ function wrapIndented(text: string, width: number): string[] {
 }
 
 /**
- * One row, laid out for a given width: the gutter, the hanging indent, and the metric column.
+ * One row, laid out for a given width: the gutter, the hanging indent, and the metric.
  *
- * A short row's metric is right-aligned to the capped metric rail, which makes measurements line
- * up without forcing the title to wrap at that rail. A title may use the full transcript width;
- * once it crosses the rail, its metric follows with the minimum gap. Room for a late metric is
- * booked *before* wrapping (`metricReserve`), so a clock that appears after a second, or a line
- * count that climbs while a file streams, cannot add a line and shift the transcript below it.
+ * A row's metric trails its title on the same line, after the minimum gap — normal left-to-right
+ * flow, with no fixed column to line the numbers up against. Room for a late metric is booked
+ * *before* wrapping (`metricReserve`), so a clock that appears after a second, or a line count
+ * that climbs while a file streams, cannot add a line and shift the transcript below it. When the
+ * title has used the whole width and the metric no longer fits, the metric takes a line of its
+ * own below the title.
  *
- * A measurement too wide to be a column is prose: it goes back into the title and wraps with it,
+ * A measurement too wide to be a metric is prose: it goes back into the title and wraps with it,
  * which is what keeps a long error message readable instead of forcing it into a margin.
  */
 export function layoutRow(parts: RowParts, width: number): string[] {
 	const rowWidth = Math.max(1, width);
-	const metricRailWidth = Math.min(rowWidth, ROW_RAIL_MAX);
 	// The width a metric occupies is the width of its *text*, which is what `metricReserve` carries
 	// when the string handed in is styled: a styled metric's escapes are not measurable without the
 	// theme that produced them, and a caller that reserved room for one knows its plain width.
@@ -89,19 +82,15 @@ export function layoutRow(parts: RowParts, width: number): string[] {
 		return lines;
 	}
 	if (lines.length === 0) {
-		return [rightAlign(metric, metricRailWidth)];
+		return [`${spaces(GUTTER)}${metric}`];
 	}
 	const last = lines.length - 1;
 	const used = visibleWidth(lines[last] as string);
-	if (used + METRIC_GAP + columnWidth <= metricRailWidth) {
-		lines[last] = `${lines[last]}${spaces(metricRailWidth - used - columnWidth)}${metric}`;
-		return lines;
-	}
 	if (used + METRIC_GAP + columnWidth <= rowWidth) {
 		lines[last] = `${lines[last]}${spaces(METRIC_GAP)}${metric}`;
 		return lines;
 	}
-	lines.push(rightAlign(metric, metricRailWidth));
+	lines.push(`${spaces(GUTTER)}${metric}`);
 	return lines;
 }
 
@@ -127,7 +116,7 @@ export function layoutOutput(text: string, width: number): string[] {
 
 /**
  * The component a quiet row is drawn with: `render(width)` is `layoutRow`, so the gutter, the
- * hanging indent and the metric column are all decided where the width is known.
+ * hanging indent and the metric are all decided where the width is known.
  */
 class RowComponent implements Component {
 	private readonly parts: RowParts;
@@ -177,7 +166,7 @@ export function rowComponent(theme: Theme, parts: RowParts): Component {
 	return new RowComponent(styleParts(theme, emphasizeHeader, emphasizeMetric, parts));
 }
 
-/** The plain width of a metric, carried alongside the styled one so the column can be measured. */
+/** The plain width of a metric, carried alongside the styled one so it can be measured. */
 function styleParts(
 	theme: Theme,
 	styleTitle: (theme: Theme, title: string) => string,

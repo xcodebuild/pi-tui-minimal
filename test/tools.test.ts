@@ -32,8 +32,8 @@ function paintLine(component: { render: (width: number) => string[] }): string {
 }
 
 /**
- * A row's header with the metric column's padding collapsed to one space, which is what the
- * alignment spends: `◆ Ran git status 2.4s`. The column itself is asserted in `layout.test.ts`.
+ * A row's header with the metric's gap collapsed to one space: `◆ Ran git status 2.4s`. The
+ * layout itself is asserted in `layout.test.ts`.
  */
 function rowLine(component: { render: (width: number) => string[] }, width = 100): string {
 	return (component.render(width)[0] ?? "").trim().replace(/ {2,}/g, " ");
@@ -59,7 +59,7 @@ describe("quiet tool renderers", () => {
 		// A run that has only just started carries no clock: `0.0s` is nine columns spent on nothing.
 		expect(a).toBe(`${LIVE} Run git status`);
 		expect(a).not.toBe(b);
-		// Once it has been going for a while, the clock appears in the metric column.
+		// Once it has been going for a while, the clock appears as the trailing metric.
 		const steady = rowLine(
 			bash.renderCall!({ command: "git status" }, fakeTheme, renderContext({ toolCallId: "b1", isPartial: true, ...running() })),
 		);
@@ -562,7 +562,7 @@ describe("quiet tool emphasis", () => {
 		expect(settled.includes(LIVE)).toBe(false);
 	});
 
-	it("keeps the live clock in the row's dim metric column, never bold", () => {
+	it("keeps the live clock in the row's dim metric, never bold", () => {
 		const tools = quietTools(process.cwd(), new BurstTracker());
 		const bash = tools.find((tool) => tool.name === "bash")!;
 		const row = paintLine(
@@ -612,8 +612,8 @@ describe("quiet tool emphasis", () => {
 });
 
 /**
- * The layout contract: a two-column gutter that separates machinery from prose, a metric column
- * that lines the measurements up, and a height that does not move while a row is still running.
+ * The layout contract: a two-column gutter that separates machinery from prose, a metric that
+ * trails its title, and a height that does not move while a row is still running.
  */
 describe("quiet row layout", () => {
 	it("indents a header and its expanded output by the same gutter", () => {
@@ -659,7 +659,7 @@ describe("quiet row layout", () => {
 		expect(height("a\n".repeat(400))).toBe(first);
 	});
 
-	it("puts the exit code of a failed run in the metric column, behind a `×`", () => {
+	it("puts the exit code of a failed run in the trailing metric, behind a `×`", () => {
 		const tools = quietTools(process.cwd(), new BurstTracker());
 		const bash = tools.find((tool) => tool.name === "bash")!;
 		const row = paintLine(
@@ -670,7 +670,7 @@ describe("quiet row layout", () => {
 				renderContext({ args: { command: "false" }, isError: true }),
 			),
 		);
-		// The whole line keeps the error colour, and the status is bold and right-aligned.
+		// The whole line keeps the error colour, and the status is bold and trails the title.
 		expect(row).toContain("[error]");
 		expect(row).toContain("<b>×</b>");
 		expect(row).toContain("<b>Run</b>");

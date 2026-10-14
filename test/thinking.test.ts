@@ -157,8 +157,8 @@ describe("thinking controller", () => {
 		expect(ctx.notifications).toEqual([]);
 		controller.handleMessageUpdate(message);
 		clock = 2500;
-		// The count stays in the row; the clock goes into the metric column, right-aligned to the
-		// width the transformer was handed.
+		// The count stays in the row; the clock trails it as the metric, laid out to the width the
+		// transformer was handed.
 		const streaming = controller.transform("a".repeat(400), {
 			messageType: "assistant-thinking",
 			isStreaming: true,

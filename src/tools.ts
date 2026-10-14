@@ -168,7 +168,7 @@ function rowPath(args: unknown, context: { cwd: string; expanded: boolean }, fal
 }
 
 /**
- * The `edit` row: `◆ Edit src/a.ts` with `−3 +12` in the metric column, or the bare path before
+ * The `edit` row: `◆ Edit src/a.ts` with `−3 +12` in the metric, or the bare path before
  * the counts have streamed in. The column is reserved either way, so the row does not grow a line
  * when the first replacement lands.
  */

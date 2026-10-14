@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
-### Requirement: Row layout uses a gutter and a metric column
-Stacked agent output rows (tool rows and their expanded output, thinking labels, questionnaire rows, and rows belonging to tools the extension does not register) SHALL be indented by a two-column gutter, while the user's own prompt keeps the `❯` marker in the first column, so prose and machinery are distinguishable without reading the marker. Thinking labels SHALL keep that gutter whether or not they carry a duration. A row whose text is wider than the transcript SHALL wrap with a hanging indent: continuation lines align under the row body rather than returning to the first column. Numbers a row carries as a measurement — an elapsed clock, a thinking token count, added/removed line counts, a `write` line count, an exit code — SHALL be drawn dim and separated from the title by at least two columns. Measurements on titles that fit before the 80-column metric rail SHALL be right-aligned on that rail. Titles SHALL still use the transcript's actual width and MUST NOT wrap at the metric rail; when a title crosses the rail, its measurement SHALL follow after the minimum gap instead. When the title and the metric cannot share one line, the metric SHALL take a right-aligned line of its own below the wrapped title, and MUST NOT be truncated away. The gutter, the hanging indent, and the metric column MUST NOT add a filled background or change the row's line count between its running and settled views.
+### Requirement: Row layout uses a gutter and a trailing metric
+Stacked agent output rows (tool rows and their expanded output, thinking labels, questionnaire rows, and rows belonging to tools the extension does not register) SHALL be indented by a two-column gutter, while the user's own prompt keeps the `❯` marker in the first column, so prose and machinery are distinguishable without reading the marker. Thinking labels SHALL keep that gutter whether or not they carry a duration. A row whose text is wider than the transcript SHALL wrap with a hanging indent: continuation lines align under the row body rather than returning to the first column. Numbers a row carries as a measurement — an elapsed clock, a thinking token count, added/removed line counts, a `write` line count, an exit code — SHALL be drawn dim and SHALL trail the title on the same line, separated by at least two columns; they MUST NOT be aligned into a fixed column across rows. A title SHALL use the transcript's actual width. When the title has used the whole width and the metric cannot follow on the same line, the metric SHALL take a line of its own below the wrapped title, and MUST NOT be truncated away. Room for a metric that appears or grows later SHALL be reserved before the title wraps, so the row's height is the same while it runs and after it settles. The gutter, the hanging indent, and the metric MUST NOT add a filled background or change the row's line count between its running and settled views.
 
 #### Scenario: Prose and machinery are separated
 - **WHEN** a turn draws an assistant text block and a collapsed tool row
@@ -13,20 +13,20 @@ Stacked agent output rows (tool rows and their expanded output, thinking labels,
 - **THEN** the first line starts with the gutter and the marker
 - **AND** every continuation line is indented past the marker so the marker column stays a clean rail
 
-#### Scenario: Metrics line up down the transcript
-- **WHEN** several collapsed rows carry measurements (a clock, a token count, `+N −M`, `exit N`) and their titles fit before the metric rail
-- **THEN** each measurement is right-aligned in the same column with at least two columns of gap after its title
+#### Scenario: The metric trails its own title
+- **WHEN** several collapsed rows carry measurements (a clock, a token count, `+N −M`, `exit N`)
+- **THEN** each measurement follows its own title after at least two columns of gap on the same line
+- **AND** the measurements are not aligned to a shared column
 - **AND** each measurement is drawn in the theme's `dim` slot
 
-#### Scenario: A wide transcript keeps the metric nearby
+#### Scenario: A wide transcript does not stretch the row
 - **WHEN** the transcript is wider than 80 columns
-- **THEN** a short row's metric aligns within an 80-column rail from the left edge
-- **AND** a longer title may extend beyond that rail without wrapping early
-- **AND** its metric follows after the minimum gap instead of being pushed to the physical right edge of the terminal
+- **THEN** a short row's metric sits right after its title rather than at the right edge of the terminal
+- **AND** a long title uses the full width without wrapping early to make room for the metric
 
 #### Scenario: The metric survives a narrow transcript
 - **WHEN** a row's title leaves no room for its metric on the same line
-- **THEN** the title wraps and the metric is drawn right-aligned on a following line
+- **THEN** the title wraps and the metric is drawn on a following line
 - **AND** the metric is not dropped and not truncated
 
 ### Requirement: Row styling uses a marker table, accent, and weight
@@ -36,7 +36,7 @@ The extension SHALL give each one-line row a scannable anchor using foreground c
 - **WHEN** a `bash` row is collapsed to its summary line
 - **THEN** the `◆` marker and `Ran` are accented and bold
 - **AND** the run title or command text is dim
-- **AND** the elapsed clock is drawn in the dim metric column, with no weight or accent of its own
+- **AND** the elapsed clock is drawn in the dim metric, with no weight or accent of its own
 
 #### Scenario: Merged inspect row separates counts from nouns
 - **WHEN** a burst merges into `Listed 3 dirs, Searched 15 patterns`
@@ -53,7 +53,7 @@ The extension SHALL give each one-line row a scannable anchor using foreground c
 #### Scenario: Path and counts are readable on a diff row
 - **WHEN** an `edit` or `write` row is shown with its `+N/−M` counts
 - **THEN** the path is bold
-- **AND** one count per sign is drawn in its diff color (`toolDiffAdded` for `+N`, `toolDiffRemoved` for `−M`) in the metric column
+- **AND** one count per sign is drawn in its diff color (`toolDiffAdded` for `+N`, `toolDiffRemoved` for `−M`) in the metric
 - **AND** a path containing spaces is bolded whole, not split at the first space
 
 #### Scenario: Thinking labels step back
@@ -61,7 +61,7 @@ The extension SHALL give each one-line row a scannable anchor using foreground c
 - **THEN** the label opens with `·` drawn dim, with no accent and no bold
 - **AND** the word (`Thinking`, `Thought`) is dim rather than accented
 - **AND** the token count stays plain and dim rather than bold, and keeps the thinking color rather than the terminal default
-- **AND** the duration is drawn in the dim metric column
+- **AND** the duration is drawn in the dim metric
 - **AND** the hidden-thinking label uses the same light form
 
 ### Requirement: Transcript spacing marks phase boundaries
@@ -85,12 +85,12 @@ The extension SHALL remove repetitive blank spacers between tool rows and thinki
 - **AND** no text from the row is dropped or reordered
 
 ### Requirement: Consecutive fast runs merge into one summary line
-Consecutive `bash` runs that each settled in under one second and that have no intervening assistant text, `edit`, `write`, or inspect row SHALL render as a single summary line instead of one row each. The merged line SHALL carry a past-tense run verb, the number of commands it covers, and up to two of their descriptions followed by a `+N more` count for the rest (for example `Ran 3 commands: git status, npm test +2 more`); the merged line's metric column SHALL carry the total elapsed time of the covered runs. A run that took one second or more SHALL keep its own row and SHALL end the merge, so work that took real time is never hidden inside a summary. The merged line SHALL belong to the first covered run, the way an inspect burst belongs to its first success. Failed runs MUST NOT be counted into a merged line; they keep their own error row. Expanding tool output SHALL unmerge the covered runs, and collapsing SHALL restore the single merged line.
+Consecutive `bash` runs that each settled in under one second and that have no intervening assistant text, `edit`, `write`, or inspect row SHALL render as a single summary line instead of one row each. The merged line SHALL carry a past-tense run verb, the number of commands it covers, and up to two of their descriptions followed by a `+N more` count for the rest (for example `Ran 3 commands: git status, npm test +2 more`); the merged line's metric SHALL carry the total elapsed time of the covered runs. A run that took one second or more SHALL keep its own row and SHALL end the merge, so work that took real time is never hidden inside a summary. The merged line SHALL belong to the first covered run, the way an inspect burst belongs to its first success. Failed runs MUST NOT be counted into a merged line; they keep their own error row. Expanding tool output SHALL unmerge the covered runs, and collapsing SHALL restore the single merged line.
 
 #### Scenario: Three quick runs collapse to one line
 - **WHEN** three `bash` calls each settle in under a second with no assistant text, `edit`, `write`, or inspect row between them
 - **THEN** the default view is one line naming the command count and their descriptions (for example `Ran 3 commands: git status, npm test +1 more`)
-- **AND** the total elapsed time of the three runs is right-aligned in the metric column
+- **AND** the total elapsed time of the three runs trails the merged title as its metric
 - **AND** no command output is shown
 
 #### Scenario: A slow run keeps its own row
@@ -148,7 +148,7 @@ The quiet theme SHALL define three foreground steps that are distinguishable fro
 ## MODIFIED Requirements
 
 ### Requirement: Thinking streams inline in the transcript then collapses in place
-The system SHALL render assistant thinking inline in the transcript, inside the assistant message and in execution order (not in a widget below the transcript). While thinking is streaming the system SHALL show a single live line under a light `· Thinking` label, carrying a live token count and the elapsed time, in that order (for example `· Thinking 1,234 tokens 2.1s` with the clock in the metric column), instead of the thinking text, so the block is exactly one row tall and the content below it never shifts; the count SHALL be an estimate of the accumulated thinking text and SHALL never decrease while a run streams, and the elapsed seconds SHALL be measured from the first thinking token of the run. When thinking for that turn ends the system SHALL replace that line in place with a single summary line carrying the final count and, when it is known, the duration. Pressing pi's tool-output expand control (`Ctrl+O`) SHALL expand the block in place to the full thinking text. The system MUST NOT strip or rewrite thinking content in the session or the model context.
+The system SHALL render assistant thinking inline in the transcript, inside the assistant message and in execution order (not in a widget below the transcript). While thinking is streaming the system SHALL show a single live line under a light `· Thinking` label, carrying a live token count and the elapsed time, in that order (for example `· Thinking 1,234 tokens 2.1s` with the clock in the metric), instead of the thinking text, so the block is exactly one row tall and the content below it never shifts; the count SHALL be an estimate of the accumulated thinking text and SHALL never decrease while a run streams, and the elapsed seconds SHALL be measured from the first thinking token of the run. When thinking for that turn ends the system SHALL replace that line in place with a single summary line carrying the final count and, when it is known, the duration. Pressing pi's tool-output expand control (`Ctrl+O`) SHALL expand the block in place to the full thinking text. The system MUST NOT strip or rewrite thinking content in the session or the model context.
 
 #### Scenario: Thinking is in progress
 - **WHEN** the model streams thinking tokens for the current assistant message
@@ -162,7 +162,7 @@ The system SHALL render assistant thinking inline in the transcript, inside the 
 #### Scenario: Thinking completes
 - **WHEN** thinking for the current assistant turn ends
 - **THEN** the live line collapses in place to one `· Thought` summary line
-- **AND** the summary shows the final count in the row and, when it is known, the duration in the metric column
+- **AND** the summary shows the final count in the row and, when it is known, the duration in the metric
 
 #### Scenario: Thinking from a previous session is restored
 - **WHEN** a resumed session renders thinking whose duration is unknown
@@ -181,11 +181,11 @@ The system SHALL render assistant thinking inline in the transcript, inside the 
 - **AND** full thinking text remains available in the stored assistant message, and the extension MUST NOT delete thinking from it
 
 ### Requirement: Non-mutation tools stream then collapse
-While a built-in `bash`, `read`, `grep`, `find`, or `ls` call is running or streaming, the system SHALL show a one-line header and MUST NOT draw the call's output there, so the row's height is the same running and settled and the transcript below it does not move. While a `bash` command runs, its header SHALL carry a live clock in the metric column once the run has lasted at least one second. When `bash` finishes, the system SHALL collapse that call to its own single summary line whose verb turns past tense and whose clock settles beside it (`Ran …` with the duration in the metric column). A run that settled in under one second SHALL be shown without a clock, so a sub-second measurement is never drawn as `0.0s`. Inspect tools follow the merge requirement instead of keeping one line per call. While a row is running, its title SHALL be drawn in a brighter foreground step than a settled row's dim title, so the row that is moving is the row the eye finds first. Full per-tool output MUST be available when tool output is expanded — for a still-running `bash` call that means every line printed so far.
+While a built-in `bash`, `read`, `grep`, `find`, or `ls` call is running or streaming, the system SHALL show a one-line header and MUST NOT draw the call's output there, so the row's height is the same running and settled and the transcript below it does not move. While a `bash` command runs, its header SHALL carry a live clock in the metric once the run has lasted at least one second. When `bash` finishes, the system SHALL collapse that call to its own single summary line whose verb turns past tense and whose clock settles beside it (`Ran …` with the duration in the metric). A run that settled in under one second SHALL be shown without a clock, so a sub-second measurement is never drawn as `0.0s`. Inspect tools follow the merge requirement instead of keeping one line per call. While a row is running, its title SHALL be drawn in a brighter foreground step than a settled row's dim title, so the row that is moving is the row the eye finds first. Full per-tool output MUST be available when tool output is expanded — for a still-running `bash` call that means every line printed so far.
 
 #### Scenario: Bash is running
 - **WHEN** the agent `bash` tool has been executing for more than a second
-- **THEN** the row shows a header with a short run title or the command and the elapsed seconds so far right-aligned in the metric column
+- **THEN** the row shows a header with a short run title or the command and the elapsed seconds so far trailing it as the metric
 - **AND** the running row's title is drawn brighter than a settled row's title
 - **AND** no output line is drawn under it
 - **AND** the clock keeps ticking while output is paused
@@ -202,7 +202,7 @@ While a built-in `bash`, `read`, `grep`, `find`, or `ls` call is running or stre
 
 #### Scenario: Bash completes
 - **WHEN** `bash` exits successfully after at least a second
-- **THEN** that call is a single line whose verb is past tense and which carries the settled duration in the metric column
+- **THEN** that call is a single line whose verb is past tense and which carries the settled duration in the metric
 - **AND** the live output viewport is not shown
 - **AND** it MUST NOT be merged onto an inspect-tool summary line
 
@@ -213,16 +213,16 @@ While a built-in `bash`, `read`, `grep`, `find`, or `ls` call is running or stre
 - **AND** toggling again restores the collapsed (and merged, for inspect tools) view
 
 ### Requirement: Write and edit report the size of the change while streaming
-While a `write` or `edit` call's arguments are still streaming, the row SHALL show a one-line header carrying the size of the change, updated as the arguments arrive: `write` counts the lines of the content received so far, and `edit` totals the old and new lines of every replacement in the call. While the counts are on the row they SHALL be drawn in the dim metric column rather than inline with the path. The counts stay on the header once the call settles, above the diff when the row is expanded. The counts MUST NOT be a second row, MUST NOT add a filled background, and MUST NOT change what the model or the session stores.
+While a `write` or `edit` call's arguments are still streaming, the row SHALL show a one-line header carrying the size of the change, updated as the arguments arrive: `write` counts the lines of the content received so far, and `edit` totals the old and new lines of every replacement in the call. While the counts are on the row they SHALL be drawn in the dim metric rather than inline with the path. The counts stay on the header once the call settles, above the diff when the row is expanded. The counts MUST NOT be a second row, MUST NOT add a filled background, and MUST NOT change what the model or the session stores.
 
 #### Scenario: Write streams its line count
 - **WHEN** the model streams a `write` whose content has reached 128 lines
-- **THEN** the header is `◆ Write src/a.ts` with `128 lines` right-aligned in the metric column
+- **THEN** the header is `◆ Write src/a.ts` with `128 lines` trailing it as the metric
 - **AND** the count grows as more content arrives and closes on the final line total
 
 #### Scenario: Edit streams its old/new line counts
 - **WHEN** the model streams an `edit` whose replacements total 3 old lines and 12 new lines
-- **THEN** the header is `◆ Edit src/a.ts` with `−3 +12` right-aligned in the metric column
+- **THEN** the header is `◆ Edit src/a.ts` with `−3 +12` trailing it as the metric
 - **AND** the `−3` and the `+12` are drawn in the removed and added diff colors respectively
 
 #### Scenario: Settled row keeps one header
@@ -236,11 +236,11 @@ While a `write` or `edit` call's arguments are still streaming, the row SHALL sh
 - **AND** the streamed line counts are not shown a second time
 
 ### Requirement: Errors stay one line until expanded
-A failed or aborted tool call SHALL collapse to a single error summary line using the `×` marker (tool name, primary argument, and exit code or error text). Expanded view SHALL show the captured output or error details. The system MUST NOT keep a tall error dump in the default view. The collapsed line SHALL keep the theme's `error` color and SHALL bold its `×` marker, the tool or action name, and the trailing exit code or error status, without adding a second hue; the exit code or error status SHALL be drawn in the metric column.
+A failed or aborted tool call SHALL collapse to a single error summary line using the `×` marker (tool name, primary argument, and exit code or error text). Expanded view SHALL show the captured output or error details. The system MUST NOT keep a tall error dump in the default view. The collapsed line SHALL keep the theme's `error` color and SHALL bold its `×` marker, the tool or action name, and the trailing exit code or error status, without adding a second hue; the exit code or error status SHALL be drawn in the metric.
 
 #### Scenario: Bash non-zero exit
 - **WHEN** `bash` exits with a non-zero code
-- **THEN** the collapsed row is one line opening with `×`, including the command, with the exit code right-aligned in the metric column
+- **THEN** the collapsed row is one line opening with `×`, including the command, with the exit code trailing it as the metric
 - **AND** stdout/stderr are visible only when expanded
 
 #### Scenario: Edit or write failure
@@ -260,13 +260,13 @@ A `bash` call that ran for at least one second, or that was followed by assistan
 #### Scenario: A slow bash call
 - **WHEN** a `bash` call runs for two seconds
 - **THEN** it has its own header with its own live clock while running
-- **AND** it collapses to its own `Ran …` line with the duration in the metric column
+- **AND** it collapses to its own `Ran …` line with the duration in the metric
 
 #### Scenario: Two bash calls
 - **WHEN** two `bash` calls run in the same turn
 - **THEN** each has its own header with its own live clock while running
 - **AND** each settles to its own `Ran …` line when it took at least a second
-- **AND** two runs that both settled in under a second MAY share one merged run line instead, with the total time in the metric column
+- **AND** two runs that both settled in under a second MAY share one merged run line instead, with the total time in the metric
 
 #### Scenario: Bash never joins an inspect summary
 - **WHEN** a `bash` call sits between two inspect bursts
